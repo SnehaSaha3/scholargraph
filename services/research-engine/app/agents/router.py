@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+import json
+
+from pydantic import BaseModel, ValidationError
 
 from app.graph.state import ResearchState
 from app.models.llm import get_llm
@@ -10,6 +12,7 @@ class RouterResult(BaseModel):
 
 
 def router_agent(state: ResearchState) -> dict:
+
     llm = get_llm()
 
     prompt = f"""
@@ -22,18 +25,74 @@ Analyze this research question:
 Identify:
 
 1. The primary academic or research domain.
-2. 3 to 6 important subtopics that should be investigated.
-
-Keep the result focused on research.
+2. 3 to 6 focused research subtopics.
 
 Do not answer the research question.
 
-Return only the requested structured fields.
+Return ONLY valid JSON.
+
+The JSON MUST have exactly this structure:
+
+{{
+  "domain": "primary research domain",
+  "subtopics": [
+    "subtopic 1",
+    "subtopic 2",
+    "subtopic 3"
+  ]
+}}
+
+Do not use Markdown.
+Do not use ```json.
+Do not add explanations.
 """
 
-    structured_llm = llm.with_structured_output(RouterResult)
+    response = llm.invoke(prompt)
 
-    result = structured_llm.invoke(prompt)
+    content = response.content
+
+    if isinstance(content, list):
+
+        content = "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict)
+        )
+
+    content = str(content).strip()
+
+    # Handle accidental markdown fences.
+    if content.startswith("```"):
+
+        content = (
+            content
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+    try:
+
+        data = json.loads(content)
+
+        result = RouterResult.model_validate(
+            data
+        )
+
+    except (
+        json.JSONDecodeError,
+        ValidationError,
+    ) as error:
+
+        print(
+            "[router] Invalid model output:"
+        )
+
+        print(content)
+
+        raise RuntimeError(
+            "Router returned invalid JSON."
+        ) from error
 
     return {
         "domain": result.domain,

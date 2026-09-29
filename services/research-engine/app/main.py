@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.health import router as health_router
 from app.api.routes.research import router as research_router
+from app.api.routes.resources import router as resources_router
 
 
 app = FastAPI(
@@ -11,10 +12,12 @@ app = FastAPI(
 )
 
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -22,6 +25,7 @@ app.add_middleware(
 )
 
 
+# Routes
 app.include_router(
     health_router,
     prefix="/api",
@@ -30,6 +34,11 @@ app.include_router(
 app.include_router(
     research_router,
     prefix="/api/research",
+)
+
+app.include_router(
+    resources_router,
+    prefix="/api/resources",
 )
 
 
