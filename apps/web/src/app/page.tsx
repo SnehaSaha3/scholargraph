@@ -46,8 +46,12 @@ export default function Home() {
         experience_level: "beginner",
         hours_per_week: 10,
       });
+    setResearchPlan(plan);
 
-      setResearchPlan(plan);
+     localStorage.setItem(
+     "scholargraph:last-plan",
+      JSON.stringify(plan)
+    );
     } catch (error) {
       console.error(error);
 
