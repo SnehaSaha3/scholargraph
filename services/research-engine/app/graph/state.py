@@ -32,3 +32,10 @@ class ResearchState(TypedDict, total=False):
     milestones: list[dict]
 
     daily_tasks: list[dict]
+
+    research_scope: list[str]
+    key_concepts: list[str]
+    established_approaches: list[str]
+    challenges: list[str]
+    research_directions: list[str]
+    research_gaps: list[str]

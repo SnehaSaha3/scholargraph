@@ -18,7 +18,8 @@ def get_llm() -> ChatGroq:
         raise RuntimeError("GROQ_MODEL is not configured.")
 
     return ChatGroq(
-        api_key=api_key,
-        model=model,
-        temperature=0,
-    )
+    api_key=api_key,
+    model=model,
+    temperature=0,
+    max_tokens=900,
+)

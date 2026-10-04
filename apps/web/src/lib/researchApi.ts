@@ -61,22 +61,25 @@ export type ResearchPlan = {
   question: string;
   understanding: string;
 
-  topics: string[];
+  research_scope: string[];
+  key_concepts: string[];
+  established_approaches: string[];
+  challenges: string[];
+  research_directions: string[];
+  research_gaps: string[];
 
+  topics: string[];
   prerequisites: string[];
 
   learning_path: LearningTopic[];
 
   foundational_papers: ResearchPaper[];
-
   recent_papers: ResearchPaper[];
 
   datasets: ResearchResource[];
-
   books: ResearchResource[];
 
   milestones: ResearchMilestone[];
-
   daily_tasks: ResearchDailyTask[];
 };
 

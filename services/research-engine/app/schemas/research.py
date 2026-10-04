@@ -120,3 +120,29 @@ class ResearchPlan(BaseModel):
     milestones: list[ResearchMilestone]
 
     daily_tasks: list[ResearchDailyTask]
+
+
+class ResearchPlan(BaseModel):
+    question: str
+    understanding: str
+
+    research_scope: list[str]
+    key_concepts: list[str]
+    established_approaches: list[str]
+    challenges: list[str]
+    research_directions: list[str]
+    research_gaps: list[str]
+
+    topics: list[str]
+    prerequisites: list[str]
+
+    learning_path: list[LearningTopic]
+
+    foundational_papers: list[ResearchPaper]
+    recent_papers: list[ResearchPaper]
+
+    datasets: list[ResearchResource]
+    books: list[ResearchResource]
+
+    milestones: list[ResearchMilestone]
+    daily_tasks: list[ResearchDailyTask]

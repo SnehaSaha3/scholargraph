@@ -426,9 +426,7 @@ def create_research_plan(
 
         learning_path=learning_path,
 
-        foundational_papers=(
-            foundational_papers
-        ),
+        foundational_papers=foundational_papers,
 
         recent_papers=recent_papers,
 
@@ -439,4 +437,34 @@ def create_research_plan(
         milestones=milestones,
 
         daily_tasks=daily_tasks,
+
+        research_scope=result.get(
+            "research_scope",
+            [],
+        ),
+
+        key_concepts=result.get(
+            "key_concepts",
+            [],
+        ),
+
+        established_approaches=result.get(
+            "established_approaches",
+            [],
+        ),
+
+        challenges=result.get(
+            "challenges",
+            [],
+        ),
+
+        research_directions=result.get(
+            "research_directions",
+            [],
+        ),
+
+        research_gaps=result.get(
+            "research_gaps",
+            [],
+        ),
     )

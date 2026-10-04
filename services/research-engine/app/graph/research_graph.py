@@ -1,41 +1,20 @@
-from langgraph.graph import (
-    END,
-    START,
-    StateGraph,
-)
+from langgraph.graph import END, START, StateGraph
 
 from app.graph.state import ResearchState
 
 
 def build_research_graph():
+    from app.agents.analysis import analysis_agent
+    from app.agents.books import book_agent
+    from app.agents.datasets import dataset_agent
+    from app.agents.literature import literature_agent
+    from app.agents.research_intent import research_intent_agent
 
-    from app.agents.router import router_agent
-    from app.agents.domain import domain_agent
-    from app.agents.literature import (
-        literature_agent,
-    )
-    from app.agents.datasets import (
-        dataset_agent,
-    )
-    from app.agents.books import (
-        book_agent,
-    )
-    from app.agents.planner import (
-        planner_agent,
-    )
-
-    graph = StateGraph(
-        ResearchState
-    )
+    graph = StateGraph(ResearchState)
 
     graph.add_node(
-        "router",
-        router_agent,
-    )
-
-    graph.add_node(
-        "domain",
-        domain_agent,
+        "research_intent",
+        research_intent_agent,
     )
 
     graph.add_node(
@@ -54,22 +33,17 @@ def build_research_graph():
     )
 
     graph.add_node(
-        "planner",
-        planner_agent,
+        "analysis",
+        analysis_agent,
     )
 
     graph.add_edge(
         START,
-        "router",
+        "research_intent",
     )
 
     graph.add_edge(
-        "router",
-        "domain",
-    )
-
-    graph.add_edge(
-        "domain",
+        "research_intent",
         "literature",
     )
 
@@ -85,11 +59,11 @@ def build_research_graph():
 
     graph.add_edge(
         "books",
-        "planner",
+        "analysis",
     )
 
     graph.add_edge(
-        "planner",
+        "analysis",
         END,
     )
 
