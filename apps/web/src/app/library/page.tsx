@@ -9,6 +9,7 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/layout/AppShell";
 
@@ -17,10 +18,12 @@ import {
   searchBooks,
 } from "@/lib/researchApi";
 
-const DEFAULT_QUERY = "computer vision object detection";
-
 export default function LibraryPage() {
-  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const searchParams = useSearchParams();
+
+  const urlQuery = searchParams.get("query") ?? "";
+
+  const [query, setQuery] = useState(urlQuery);
   const [books, setBooks] = useState<ResearchResource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -29,6 +32,7 @@ export default function LibraryPage() {
     const trimmedQuery = searchQuery.trim();
 
     if (!trimmedQuery) {
+      setBooks([]);
       return;
     }
 
@@ -67,6 +71,33 @@ export default function LibraryPage() {
     }
   }
 
+  /*
+   * If Research → View more opens:
+   *
+   * /library?query=breast%20cancer
+   *
+   * automatically search for that query.
+   *
+   * If the user opens:
+   *
+   * /library
+   *
+   * nothing is searched.
+   */
+  useEffect(() => {
+    const trimmedQuery = urlQuery.trim();
+
+    setQuery(urlQuery);
+
+    if (!trimmedQuery) {
+      setBooks([]);
+      setError("");
+      return;
+    }
+
+    void loadBooks(trimmedQuery);
+  }, [urlQuery]);
+
   function handleSearch(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -74,10 +105,6 @@ export default function LibraryPage() {
 
     void loadBooks(query);
   }
-
-  useEffect(() => {
-    void loadBooks(DEFAULT_QUERY);
-  }, []);
 
   return (
     <AppShell>
@@ -134,7 +161,7 @@ export default function LibraryPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !query.trim()}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#9b8cff]/25 bg-[#9b8cff]/10 px-5 text-xs font-medium text-[#c5beff] transition hover:bg-[#9b8cff]/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Search
@@ -198,7 +225,9 @@ export default function LibraryPage() {
         {!loading &&
           !error &&
           books.length === 0 && (
-            <EmptyLibrary />
+            <EmptyLibrary
+              hasQuery={Boolean(urlQuery.trim())}
+            />
           )}
       </main>
     </AppShell>
@@ -351,7 +380,11 @@ function BookCard({
 }
 
 
-function EmptyLibrary() {
+function EmptyLibrary({
+  hasQuery,
+}: {
+  hasQuery: boolean;
+}) {
   return (
     <div className="mt-12 rounded-2xl border border-dashed border-white/[0.08] p-10 text-center">
       <BookOpen
@@ -361,11 +394,15 @@ function EmptyLibrary() {
       />
 
       <h2 className="mt-4 text-sm font-medium text-[#c4c6cc]">
-        No books found
+        {hasQuery
+          ? "No books found"
+          : "Start your library search"}
       </h2>
 
       <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-[#686c77]">
-        Try a broader research topic, author name, or keyword.
+        {hasQuery
+          ? "Try a broader research topic, author name, or keyword."
+          : "Search for books, authors, topics, or resources related to your research."}
       </p>
     </div>
   );

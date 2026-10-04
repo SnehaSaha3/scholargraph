@@ -1,253 +1,392 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowUpRight,
+  ArrowRight,
   BookOpen,
+  CheckCircle2,
   Database,
+  FlaskConical,
   Lightbulb,
-  Sparkles,
+  Search,
+  Target,
+  TriangleAlert,
 } from "lucide-react";
 
 import AppShell from "@/components/layout/AppShell";
-import ResearchPlanResult from "@/components/research/ResearchPlanResult";
 import {
+  ResearchPlan,
   generateResearchPlan,
-  type ResearchPlan,
 } from "@/lib/researchApi";
 
-const suggestions = [
-  "Help me understand multimodal AI research",
-  "How do I start a research project on medical AI?",
-  "Find recent research directions in computer vision",
-];
+function Section({
+  icon: Icon,
+  title,
+  items,
+}: {
+  icon: typeof Search;
+  title: string;
+  items: string[];
+}) {
+  if (!items.length) {
+    return null;
+  }
 
-export default function Home() {
+  return (
+    <section className="rounded-2xl border border-[#272a33] bg-[#0d0f14] p-5 sm:p-6">
+      <div className="mb-5 flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#171522]">
+          <Icon className="h-4 w-4 text-[#9b8cff]" />
+        </div>
+
+        <h2 className="text-sm font-semibold text-white">
+          {title}
+        </h2>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item, index) => (
+          <div
+            key={`${title}-${index}`}
+            className="flex gap-3 text-sm leading-6 text-[#b8bac4]"
+          >
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#686273]" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceCard({
+  title,
+  count,
+  description,
+  icon: Icon,
+  href,
+}: {
+  title: string;
+  count: number;
+  description: string;
+  icon: typeof BookOpen;
+  href: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#272a33] bg-[#0d0f14] p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#171522]">
+          <Icon className="h-4 w-4 text-[#9b8cff]" />
+        </div>
+
+        <span className="text-xs text-[#777985]">
+          {count} results
+        </span>
+      </div>
+
+      <h3 className="text-sm font-semibold text-white">
+        {title}
+      </h3>
+
+      <p className="mt-2 text-sm leading-6 text-[#888b97]">
+        {description}
+      </p>
+
+      <Link
+        href={href}
+        className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[#9b8cff] transition hover:text-white"
+      >
+        View more
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </div>
+  );
+}
+
+export default function ResearchPage() {
   const [question, setQuestion] = useState("");
-  const [researchPlan, setResearchPlan] =
+
+  const [research, setResearch] =
     useState<ResearchPlan | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleResearch() {
-    if (!question.trim()) {
+  async function handleResearch(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    const trimmedQuestion = question.trim();
+
+    if (!trimmedQuestion) {
+      setError("Please enter a research question.");
       return;
     }
 
     setLoading(true);
     setError("");
-    setResearchPlan(null);
 
     try {
-      const plan = await generateResearchPlan({
-        question: question.trim(),
+      const result = await generateResearchPlan({
+        question: trimmedQuestion,
         experience_level: "beginner",
         hours_per_week: 10,
       });
-    setResearchPlan(plan);
 
-     localStorage.setItem(
-     "scholargraph:last-plan",
-      JSON.stringify(plan)
-    );
-    } catch (error) {
-      console.error(error);
+      setResearch(result);
+
+      localStorage.setItem(
+        "scholargraph:last-plan",
+        JSON.stringify(result)
+      );
+    } catch (err) {
+      console.error(
+        "ScholarGraph research error:",
+        err
+      );
 
       setError(
-        "We couldn't generate the research plan. Please try again."
+        err instanceof Error
+          ? err.message
+          : "Failed to research this question."
       );
     } finally {
       setLoading(false);
     }
   }
 
-  function handleSuggestion(suggestion: string) {
-    setQuestion(suggestion);
+  function handleNewResearch() {
+    setResearch(null);
+    setQuestion("");
+    setError("");
   }
 
   return (
     <AppShell>
-      <section className="mx-auto max-w-5xl px-4 pb-20 pt-10 sm:px-6 md:pt-16">
-        <div className="mb-10 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#282533] bg-[#0e0d14] px-3 py-1.5 text-xs text-[#a9a1c7]">
-            <Sparkles size={13} />
-            Your research workspace
-          </div>
-
-          <h1 className="text-4xl font-semibold tracking-[-0.04em] md:text-6xl">
-            Think deeper.
-            <br />
-            <span className="text-[#9b8cff]">Research smarter.</span>
-          </h1>
-
-          <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-[#818590] md:text-base">
-            ScholarGraph helps you understand a domain, discover research,
-            explore datasets, challenge your ideas and turn questions into
-            structured projects.
-          </p>
-        </div>
-
-        {/* Research terminal */}
-        <div className="rounded-2xl border border-[#282b34] bg-[#0d0f14] p-3 shadow-2xl shadow-black/20">
-          <textarea
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                (event.metaKey || event.ctrlKey)
-              ) {
-                handleResearch();
-              }
-            }}
-            placeholder="What are you researching?"
-            className="min-h-32 w-full resize-none bg-transparent p-4 text-base text-white outline-none placeholder:text-[#555965]"
-          />
-
-          <div className="flex flex-col gap-3 border-t border-[#20232b] pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setQuestion(
-                    "Help me understand a research domain and its fundamentals"
-                  )
-                }
-                className="rounded-lg bg-[#151821] px-3 py-2 text-xs text-[#969aa5] hover:text-white"
-              >
-                Explore a domain
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setQuestion(
-                    "Find important research directions and existing approaches in this field"
-                  )
-                }
-                className="rounded-lg bg-[#151821] px-3 py-2 text-xs text-[#969aa5] hover:text-white"
-              >
-                Find research
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setQuestion(
-                    "Help me brainstorm research ideas around this topic"
-                  )
-                }
-                className="rounded-lg bg-[#151821] px-3 py-2 text-xs text-[#969aa5] hover:text-white"
-              >
-                Brainstorm
-              </button>
+      <main className="mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-10 lg:pt-12">
+        {!research && (
+          <section className="mx-auto max-w-4xl pt-10 text-center lg:pt-16">
+            <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-[#272a33] bg-[#0d0f14]">
+              <FlaskConical className="h-5 w-5 text-[#9b8cff]" />
             </div>
 
-            <button
-              type="button"
-              onClick={handleResearch}
-              disabled={loading || !question.trim()}
-              className="flex items-center justify-center gap-2 rounded-lg bg-[#9b8cff] px-4 py-2.5 text-sm font-medium text-black transition hover:bg-[#aa9dff] disabled:cursor-not-allowed disabled:opacity-50"
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-[#777985]">
+              Research workspace
+            </p>
+
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              What are you researching?
+            </h1>
+
+            <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-[#888b97] sm:text-base">
+              Explore a research problem, understand its scope,
+              discover evidence, identify possible directions,
+              and turn it into a research plan.
+            </p>
+
+            <form
+              onSubmit={handleResearch}
+              className="mx-auto mt-10"
             >
-              {loading ? "Researching..." : "Research"}
+              <div className="rounded-2xl border border-[#30333d] bg-[#0d0f14] p-2 shadow-2xl shadow-black/20">
+                <textarea
+                  value={question}
+                  onChange={(event) => {
+                    setQuestion(event.target.value);
 
-              {!loading && <ArrowUpRight size={15} />}
-            </button>
-          </div>
-        </div>
+                    if (error) {
+                      setError("");
+                    }
+                  }}
+                  rows={4}
+                  placeholder="Ask a research question..."
+                  className="w-full resize-none bg-transparent px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-[#5f616b]"
+                />
 
-        {/* Keyboard hint */}
-        <p className="mt-2 text-right text-[10px] text-[#4f535d]">
-          Press ⌘ Enter to research
-        </p>
+                <div className="flex items-center justify-between border-t border-[#242730] px-2 pt-2">
+                  <span className="px-2 text-xs text-[#5f616b]">
+                    ScholarGraph will investigate the question
+                  </span>
 
-        {/* Error */}
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-400/10 bg-red-400/[0.04] px-4 py-3 text-sm text-red-300">
-            {error}
-          </div>
+                  <button
+                    type="submit"
+                    disabled={loading || !question.trim()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#9b8cff] px-4 py-2.5 text-sm font-medium text-[#0b0b0f] transition hover:bg-[#afa3ff] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {loading ? (
+                      "Researching..."
+                    ) : (
+                      <>
+                        Research
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {error && (
+              <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-left text-sm text-red-300">
+                {error}
+              </div>
+            )}
+          </section>
         )}
 
-        {/* Suggestions */}
-        <div className="mt-5 space-y-2">
-          {suggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => handleSuggestion(suggestion)}
-              className="block w-full rounded-lg px-3 py-2 text-left text-xs text-[#6f737e] transition hover:bg-white/[0.025] hover:text-[#a8abb5]"
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
+        {research && (
+          <div className="space-y-8">
+            {/* Research header */}
+            <section>
+              <button
+                type="button"
+                onClick={handleNewResearch}
+                className="mb-6 text-xs text-[#777985] transition hover:text-white"
+              >
+                ← New research question
+              </button>
 
-        {/* Research result */}
-        {researchPlan && (
-          <ResearchPlanResult plan={researchPlan} />
-        )}
+              <div className="max-w-4xl">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-[#777985]">
+                  Research brief
+                </p>
 
-        {/* Quick cards */}
-        {!researchPlan && (
-          <div className="mt-16 grid gap-4 md:grid-cols-3">
-            <QuickCard
-              icon={<BookOpen size={18} />}
-              title="Research Library"
-              description="Find books, papers and useful reading material."
-              href="/library"
+                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                  {research.question}
+                </h1>
+
+                <p className="mt-5 max-w-4xl text-sm leading-7 text-[#a5a7b1]">
+                  {research.understanding}
+                </p>
+              </div>
+            </section>
+
+            {/* Scope + concepts */}
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Section
+                icon={Target}
+                title="Research scope"
+                items={research.research_scope}
+              />
+
+              <Section
+                icon={Lightbulb}
+                title="Key concepts"
+                items={research.key_concepts}
+              />
+            </div>
+
+            {/* Established approaches */}
+            <Section
+              icon={CheckCircle2}
+              title="Established approaches"
+              items={research.established_approaches}
             />
 
-            <QuickCard
-              icon={<Database size={18} />}
-              title="Dataset Explorer"
-              description="Discover datasets and understand what they contain."
-              href="/datasets"
+            {/* Challenges */}
+            <Section
+              icon={TriangleAlert}
+              title="Challenges"
+              items={research.challenges}
             />
 
-            <QuickCard
-              icon={<Lightbulb size={18} />}
-              title="Project Planner"
-              description="Turn an idea into milestones, tasks and a schedule."
-              href="/planner"
+            {/* Directions */}
+            <Section
+              icon={Lightbulb}
+              title="Potential research directions"
+              items={research.research_directions}
             />
+
+            {/* Gaps */}
+            <Section
+              icon={Search}
+              title="Potential research gaps"
+              items={research.research_gaps}
+            />
+
+            {/* Evidence */}
+            <section>
+              <div className="mb-5">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-[#777985]">
+                  Evidence
+                </p>
+
+                <h2 className="mt-2 text-2xl font-semibold text-white">
+                  Explore the research material
+                </h2>
+
+                <p className="mt-2 text-sm text-[#888b97]">
+                  Resources retrieved while investigating this
+                  question.
+                </p>
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-3">
+                <EvidenceCard
+                  title="Papers"
+                  count={
+                    research.foundational_papers.length +
+                    research.recent_papers.length
+                  }
+                  description="Foundational and recent literature relevant to the research question."
+                  icon={Search}
+                  href="#"
+                />
+
+                <EvidenceCard
+                  title="Books"
+                  count={research.books.length}
+                  description="Books and foundational material discovered through the research workflow."
+                  icon={BookOpen}
+                  href={`/library?query=${encodeURIComponent(
+                    research.question
+                  )}`}
+                />
+
+                <EvidenceCard
+                  title="Datasets"
+                  count={research.datasets.length}
+                  description="Datasets that can support investigation and experimentation."
+                  icon={Database}
+                  href={`/datasets?query=${encodeURIComponent(
+                    research.question
+                  )}`}
+                />
+              </div>
+            </section>
+
+            {/* Planner CTA */}
+            <section className="rounded-2xl border border-[#332f4b] bg-[#11101a] p-6 sm:p-8">
+              <div className="max-w-2xl">
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-[#777985]">
+                  Next step
+                </p>
+
+                <h2 className="mt-3 text-2xl font-semibold text-white">
+                  Ready to investigate this?
+                </h2>
+
+                <p className="mt-3 text-sm leading-6 text-[#999ba5]">
+                  Turn this research question into an
+                  executable learning and research plan with
+                  milestones, resources, experiments and daily
+                  work.
+                </p>
+
+                <Link
+                  href="/planner"
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#9b8cff] px-5 py-3 text-sm font-medium text-[#0b0b0f] transition hover:bg-[#afa3ff]"
+                >
+                  Build research plan
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </section>
           </div>
         )}
-      </section>
+      </main>
     </AppShell>
-  );
-}
-
-function QuickCard({
-  icon,
-  title,
-  description,
-  href,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group rounded-2xl border border-[#20232b] bg-[#0c0e13] p-5 transition hover:border-[#393344] hover:bg-[#101219]"
-    >
-      <div className="mb-8 flex h-9 w-9 items-center justify-center rounded-lg bg-[#9b8cff]/10 text-[#9b8cff]">
-        {icon}
-      </div>
-
-      <h3 className="text-sm font-medium">{title}</h3>
-
-      <p className="mt-2 text-xs leading-5 text-[#70747f]">
-        {description}
-      </p>
-
-      <div className="mt-5 text-xs text-[#9b8cff] opacity-0 transition group-hover:opacity-100">
-        Explore →
-      </div>
-    </Link>
   );
 }
