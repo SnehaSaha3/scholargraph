@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.health import router as health_router
 from app.api.routes.research import router as research_router
 from app.api.routes.resources import router as resources_router
-
+from app.api.projects import router as projects_router
 
 app = FastAPI(
     title="ScholarGraph Research Engine",
@@ -41,6 +41,7 @@ app.include_router(
     prefix="/api/resources",
 )
 
+app.include_router(projects_router)
 
 @app.get("/")
 def root():

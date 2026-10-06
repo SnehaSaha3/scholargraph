@@ -198,3 +198,107 @@ export async function searchDatasets(
 
   return [];
 }
+
+export async function searchPapers(
+  query: string
+): Promise<ResearchPaper[]> {
+  const response = await fetch(
+    `${API_BASE}/api/resources/papers?query=${encodeURIComponent(query)}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Paper search failed: ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+
+  console.log("PAPER API RESPONSE:", data);
+
+  if (Array.isArray(data?.results)) {
+    return data.results;
+  }
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  return [];
+}
+
+export type ProjectRepository = {
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  default_branch: string;
+  language: string | null;
+  stars: number;
+  forks: number;
+  open_issues: number;
+  updated_at: string | null;
+  private: boolean;
+};
+
+export type ProjectRepositorySignals = {
+  has_readme: boolean;
+  has_tests: boolean;
+  has_requirements: boolean;
+  has_package_json: boolean;
+  has_docker: boolean;
+  has_ci: boolean;
+  has_config: boolean;
+  possible_env_files: string[];
+};
+
+export type ProjectRepositoryInspection = {
+  repository: ProjectRepository;
+
+  signals: ProjectRepositorySignals;
+
+  tree_summary: {
+    total_files: number;
+    relevant_files: string[];
+  };
+};
+
+export async function inspectGitHubRepository(
+  githubUrl: string
+): Promise<ProjectRepositoryInspection> {
+  const response = await fetch(
+    `${API_BASE}/api/projects/repository`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify({
+        github_url: githubUrl,
+      }),
+
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `GitHub inspection failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}

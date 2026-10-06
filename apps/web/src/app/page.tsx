@@ -332,7 +332,9 @@ export default function ResearchPage() {
                   }
                   description="Foundational and recent literature relevant to the research question."
                   icon={Search}
-                  href="#"
+                  href={`/papers?query=${encodeURIComponent(
+                    research.question
+                  )}`}
                 />
 
                 <EvidenceCard

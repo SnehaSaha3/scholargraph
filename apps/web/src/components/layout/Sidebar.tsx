@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  FileText,
   FolderKanban,
   Library,
   Search,
@@ -26,6 +27,11 @@ const navigation = [
     label: "Library",
     href: "/library",
     icon: Library,
+  },
+  {
+     label: "Papers",
+     href: "/papers",
+     icon: FileText,
   },
   {
     label: "Datasets",
