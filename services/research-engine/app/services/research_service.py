@@ -1,470 +1,189 @@
 from app.graph.research_graph import build_research_graph
-
 from app.schemas.research import (
     LearningTopic,
     ResearchDailyTask,
+    ResearchDiscussionRequest,
+    ResearchDiscussionResponse,
+    ResearchExploration,
     ResearchMilestone,
     ResearchPaper,
     ResearchPlan,
     ResearchRequest,
     ResearchResource,
 )
+from app.models.llm import get_llm
+import json
+from pydantic import BaseModel, ValidationError
 
 
-def build_daily_tasks(
-    result: dict,
-) -> list[dict]:
+def _resources(items: list[dict]) -> list[ResearchResource]:
+    return [ResearchResource.model_validate(item) for item in items]
 
-    tasks: list[dict] = []
 
-    learning_topics = result.get(
-        "learning_topics",
-        [],
+def explore_research(request: ResearchRequest) -> ResearchExploration:
+    graph = build_research_graph()
+    result = graph.invoke({
+        "question": request.question,
+        "experience_level": request.experience_level,
+        "hours_per_week": request.hours_per_week,
+        "deadline": request.deadline,
+    })
+
+    papers = result.get("foundational_papers", []) + result.get("recent_papers", [])
+    return ResearchExploration(
+        question=request.question,
+        understanding=result.get("understanding", ""),
+        research_scope=result.get("research_scope", []),
+        key_concepts=result.get("key_concepts", []),
+        established_approaches=result.get("established_approaches", []),
+        challenges=result.get("challenges", []),
+        research_directions=result.get("research_directions", []),
+        research_gaps=result.get("research_gaps", []),
+        topics=result.get("subtopics", []),
+        prerequisites=result.get("prerequisites", []),
+        foundational_papers=[ResearchPaper.model_validate(x) for x in result.get("foundational_papers", [])],
+        recent_papers=[ResearchPaper.model_validate(x) for x in result.get("recent_papers", [])],
+        datasets=_resources(result.get("datasets", [])),
+        books=_resources(result.get("books", [])),
     )
 
-    papers = (
-        result.get("foundational_papers", [])
-        + result.get("recent_papers", [])
-    )
 
-    books = result.get(
-        "books",
-        [],
-    )
+def _clean_json(content):
+    if isinstance(content, list):
+        content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    content = str(content).strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    return content
 
-    datasets = result.get(
-        "datasets",
-        [],
-    )
 
-    milestones = result.get(
-        "milestones",
-        [],
-    )
+def discuss_research(request: ResearchDiscussionRequest) -> ResearchDiscussionResponse:
+    llm = get_llm()
+    research = request.research
+    papers = research.foundational_papers + research.recent_papers
+    evidence = {
+        "understanding": research.understanding,
+        "scope": research.research_scope,
+        "approaches": research.established_approaches,
+        "challenges": research.challenges,
+        "directions": research.research_directions,
+        "gaps": research.research_gaps,
+        "papers": [{"title": p.title, "year": p.year, "description": p.description} for p in papers[:8]],
+        "datasets": [{"title": d.title, "description": d.description} for d in research.datasets[:5]],
+    }
+    history = "\n".join(f"{m.role}: {m.content}" for m in request.messages[-6:])
+    prompt = f"""
+You are ScholarGraph's research discussion agent.
+Help the researcher think about the research question, not create a generic plan.
 
-    # Keep the V0 daily workload reasonable.
-    daily_minutes = 60
+Research question:
+{request.question}
 
-    # ---------------------------------------------------------
-    # Days 1-4: foundations
-    # ---------------------------------------------------------
+Research context:
+{json.dumps(evidence, ensure_ascii=False)}
 
-    for topic in learning_topics[:4]:
+Recent discussion:
+{history or "None"}
 
-        day = len(tasks) + 1
+User question:
+{request.prompt}
 
-        tasks.append(
-            {
-                "day": day,
-                "title": (
-                    f"Study: {topic['topic']}"
-                ),
-                "description": (
-                    topic["why_it_matters"]
-                ),
-                "estimated_minutes": daily_minutes,
-                "milestone": "Foundation",
-                "resource_title": None,
-                "resource_url": None,
-            }
+Return ONLY JSON:
+{{
+  "answer": "concise evidence-aware answer",
+  "supporting_paper_titles": ["exact title from supplied papers"],
+  "suggested_questions": ["useful follow-up question", "useful follow-up question"]
+}}
+
+Rules:
+- Do not invent papers or citations.
+- supporting_paper_titles must exactly match supplied paper titles.
+- Distinguish evidence from inference.
+- Challenge weak assumptions when appropriate.
+- Do not automatically produce a schedule or daily plan.
+- Keep the answer focused and practical.
+- No Markdown fences.
+"""
+    response = llm.invoke(prompt)
+    try:
+        data = json.loads(_clean_json(response.content))
+        title_map = {p.title: p for p in papers}
+        supporting = [title_map[t] for t in data.get("supporting_paper_titles", []) if t in title_map]
+        return ResearchDiscussionResponse(
+            answer=data.get("answer", ""),
+            supporting_papers=supporting,
+            suggested_questions=data.get("suggested_questions", [])[:4],
         )
+    except (json.JSONDecodeError, ValidationError, TypeError) as error:
+        raise RuntimeError("Research discussion returned invalid JSON.") from error
 
-    # ---------------------------------------------------------
-    # Days 5-7: literature
-    # ---------------------------------------------------------
 
+def _build_daily_tasks(result: dict) -> list[dict]:
+    tasks = []
+    learning = result.get("learning_topics", [])
+    papers = result.get("foundational_papers", []) + result.get("recent_papers", [])
+    datasets = result.get("datasets", [])
+    for topic in learning[:4]:
+        tasks.append({"day": len(tasks)+1, "title": f"Study: {topic['topic']}", "description": topic["why_it_matters"], "estimated_minutes": 60, "milestone": "Foundation", "resource_title": None, "resource_url": None})
     for paper in papers[:3]:
-
-        day = len(tasks) + 1
-
-        tasks.append(
-            {
-                "day": day,
-                "title": (
-                    f"Read: {paper['title']}"
-                ),
-                "description": (
-                    "Read the paper with focus on "
-                    "the problem, method, dataset, "
-                    "evaluation and limitations."
-                ),
-                "estimated_minutes": daily_minutes,
-                "milestone": "Literature review",
-                "resource_title": paper["title"],
-                "resource_url": paper.get("url"),
-            }
-        )
-
-    # ---------------------------------------------------------
-    # Days 8-9: books
-    # ---------------------------------------------------------
-
-    for book in books[:2]:
-
-        day = len(tasks) + 1
-
-        tasks.append(
-            {
-                "day": day,
-                "title": (
-                    f"Study: {book['title']}"
-                ),
-                "description": (
-                    "Use this as foundational reading. "
-                    "Focus on concepts directly connected "
-                    "to your research question."
-                ),
-                "estimated_minutes": daily_minutes,
-                "milestone": "Foundation",
-                "resource_title": book["title"],
-                "resource_url": book.get("url"),
-            }
-        )
-
-    # ---------------------------------------------------------
-    # Day 10: dataset investigation
-    # ---------------------------------------------------------
-
+        tasks.append({"day": len(tasks)+1, "title": f"Read: {paper['title']}", "description": "Read the problem, method, dataset, evaluation and limitations.", "estimated_minutes": 60, "milestone": "Literature review", "resource_title": paper["title"], "resource_url": paper.get("url")})
     if datasets:
-
-        dataset = datasets[0]
-
-        tasks.append(
-            {
-                "day": len(tasks) + 1,
-                "title": (
-                    f"Inspect dataset: "
-                    f"{dataset['title']}"
-                ),
-                "description": (
-                    "Inspect the dataset documentation, "
-                    "task definition, structure and "
-                    "available metadata before deciding "
-                    "whether it fits the research problem."
-                ),
-                "estimated_minutes": daily_minutes,
-                "milestone": "Data investigation",
-                "resource_title": dataset["title"],
-                "resource_url": dataset.get("url"),
-            }
-        )
-
-    # ---------------------------------------------------------
-    # Remaining days: research development
-    # ---------------------------------------------------------
-
-    development_tasks = [
-        (
-            "Compare existing approaches",
-            "Compare the methods you encountered in the literature. "
-            "Record what problem each method addresses and where "
-            "the approaches differ.",
-            "Literature review",
-        ),
-        (
-            "Define a baseline",
-            "Choose a simple baseline that can be implemented "
-            "and evaluated before attempting improvements.",
-            "Experimentation",
-        ),
-        (
-            "Design your first experiment",
-            "Write down the hypothesis, variables, dataset, "
-            "evaluation metric and expected observation.",
-            "Experimentation",
-        ),
-        (
-            "Analyze the evidence",
-            "Review what the literature and available resources "
-            "actually support. Separate evidence from assumptions.",
-            "Analysis",
-        ),
-        (
-            "Identify research gaps",
-            "Look for limitations, unresolved problems or missing "
-            "comparisons across the literature you studied.",
-            "Research direction",
-        ),
-        (
-            "Write your next research direction",
-            "Turn your observations into one concrete research "
-            "direction and explain why it deserves investigation.",
-            "Research direction",
-        ),
-    ]
-
-    for title, description, milestone in development_tasks:
-
-        if len(tasks) >= 14:
-            break
-
-        tasks.append(
-            {
-                "day": len(tasks) + 1,
-                "title": title,
-                "description": description,
-                "estimated_minutes": daily_minutes,
-                "milestone": milestone,
-                "resource_title": None,
-                "resource_url": None,
-            }
-        )
-
+        d = datasets[0]
+        tasks.append({"day": len(tasks)+1, "title": f"Inspect dataset: {d['title']}", "description": "Inspect documentation, structure and metadata before deciding whether it fits.", "estimated_minutes": 60, "milestone": "Data investigation", "resource_title": d["title"], "resource_url": d.get("url")})
+    for title, desc, milestone in [
+        ("Compare existing approaches", "Compare methods from the literature and their differences.", "Literature review"),
+        ("Define a baseline", "Choose a simple baseline that can be evaluated.", "Experimentation"),
+        ("Design the first experiment", "Define hypothesis, variables, data and evaluation metric.", "Experimentation"),
+        ("Analyze the evidence", "Separate what the evidence supports from assumptions.", "Analysis"),
+        ("Identify research gaps", "Record unresolved problems and missing comparisons.", "Research direction"),
+        ("Write the next research direction", "Turn observations into one concrete direction.", "Research direction"),
+    ]:
+        if len(tasks) >= 14: break
+        tasks.append({"day": len(tasks)+1, "title": title, "description": desc, "estimated_minutes": 60, "milestone": milestone, "resource_title": None, "resource_url": None})
     return tasks[:14]
 
 
-def create_research_plan(
-    request: ResearchRequest,
-) -> ResearchPlan:
-
-    graph = build_research_graph()
-
-    result = graph.invoke(
+def create_research_plan(request: ResearchRequest) -> ResearchPlan:
+    exploration = explore_research(request)
+    from app.agents.planner import planner_agent
+    state = exploration.model_dump()
+    state["domain"] = "research"
+    state["subtopics"] = exploration.topics
+    state["learning_topics"] = [
         {
-            "question": request.question,
-            "experience_level": (
-                request.experience_level
-            ),
-            "hours_per_week": (
-                request.hours_per_week
-            ),
-            "deadline": request.deadline,
+            "topic": topic,
+            "why_it_matters": "Build the knowledge needed to investigate the research question.",
+            "estimated_hours": 2,
         }
-    )
-
-    # ---------------------------------------------------------
-    # Learning path
-    # ---------------------------------------------------------
-
+        for topic in exploration.topics
+    ]
+    planned = planner_agent(state)
     learning_path = [
         LearningTopic(
-            topic=item["topic"],
-            why_it_matters=item[
-                "why_it_matters"
-            ],
-            estimated_hours=item[
-                "estimated_hours"
-            ],
+            topic=x["topic"],
+            why_it_matters=x["why_it_matters"],
+            estimated_hours=x["estimated_hours"],
             resources=[],
         )
-        for item in result.get(
-            "learning_topics",
-            [],
-        )
+        for x in state.get("learning_topics", [])
     ]
-
-    # ---------------------------------------------------------
-    # Foundational papers
-    # ---------------------------------------------------------
-
-    foundational_papers = [
-        ResearchPaper(
-            title=paper["title"],
-            authors=paper["authors"],
-            year=paper["year"],
-            description=paper["description"],
-            url=paper.get("url"),
-        )
-        for paper in result.get(
-            "foundational_papers",
-            [],
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # Recent papers
-    # ---------------------------------------------------------
-
-    recent_papers = [
-        ResearchPaper(
-            title=paper["title"],
-            authors=paper["authors"],
-            year=paper["year"],
-            description=paper["description"],
-            url=paper.get("url"),
-        )
-        for paper in result.get(
-            "recent_papers",
-            [],
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # Datasets
-    # ---------------------------------------------------------
-
-    datasets = [
-        ResearchResource(
-            title=dataset["title"],
-            resource_type=dataset[
-                "resource_type"
-            ],
-            description=dataset[
-                "description"
-            ],
-            url=dataset.get("url"),
-            cover_url=dataset.get(
-                "cover_url"
-            ),
-        )
-        for dataset in result.get(
-            "datasets",
-            [],
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # Books
-    # ---------------------------------------------------------
-
-    books = [
-    ResearchResource(
-        title=book["title"],
-        resource_type=book["resource_type"],
-        description=book["description"],
-        url=book.get("url"),
-        cover_url=book.get("cover_url"),
-        subjects=book.get(
-            "subjects",
-            [],
-        ),
-        access_type=book.get(
-            "access_type"
-        ),
-        action_label=book.get(
-            "action_label"
-        ),
-        read_url=book.get(
-            "read_url"
-        ),
-        borrow_url=book.get(
-            "borrow_url"
-        ),
-        source=book.get(
-            "source"
-        ),
-        relevance_score=book.get(
-            "relevance_score"
-        ),
-    )
-    for book in result.get(
-        "books",
-        [],
-    )
-]
-
-    # ---------------------------------------------------------
-    # Milestones
-    # ---------------------------------------------------------
-
-    milestones = [
-        ResearchMilestone(
-            title=item["title"],
-            description=item[
-                "description"
-            ],
-            estimated_hours=item[
-                "estimated_hours"
-            ],
-        )
-        for item in result.get(
-            "milestones",
-            [],
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # Daily research track
-    # ---------------------------------------------------------
-
-    daily_tasks = [
-        ResearchDailyTask(
-            day=task["day"],
-            title=task["title"],
-            description=task[
-                "description"
-            ],
-            estimated_minutes=task[
-                "estimated_minutes"
-            ],
-            milestone=task[
-                "milestone"
-            ],
-            resource_title=task.get(
-                "resource_title"
-            ),
-            resource_url=task.get(
-                "resource_url"
-            ),
-        )
-        for task in build_daily_tasks(
-            result
-        )
-    ]
-
-    # ---------------------------------------------------------
-    # Final response
-    # ---------------------------------------------------------
-
+    # planner now receives exploration plus the existing resource evidence.
     return ResearchPlan(
         question=request.question,
-
-        understanding=result.get(
-            "understanding",
-            "",
-        ),
-
-        topics=result.get(
-            "subtopics",
-            [],
-        ),
-
-        prerequisites=result.get(
-            "prerequisites",
-            [],
-        ),
-
+        understanding=planned.get("understanding", exploration.understanding),
+        research_scope=exploration.research_scope,
+        key_concepts=exploration.key_concepts,
+        established_approaches=exploration.established_approaches,
+        challenges=exploration.challenges,
+        research_directions=exploration.research_directions,
+        research_gaps=exploration.research_gaps,
+        topics=exploration.topics,
+        prerequisites=exploration.prerequisites,
         learning_path=learning_path,
-
-        foundational_papers=foundational_papers,
-
-        recent_papers=recent_papers,
-
-        datasets=datasets,
-
-        books=books,
-
-        milestones=milestones,
-
-        daily_tasks=daily_tasks,
-
-        research_scope=result.get(
-            "research_scope",
-            [],
-        ),
-
-        key_concepts=result.get(
-            "key_concepts",
-            [],
-        ),
-
-        established_approaches=result.get(
-            "established_approaches",
-            [],
-        ),
-
-        challenges=result.get(
-            "challenges",
-            [],
-        ),
-
-        research_directions=result.get(
-            "research_directions",
-            [],
-        ),
-
-        research_gaps=result.get(
-            "research_gaps",
-            [],
-        ),
+        foundational_papers=exploration.foundational_papers,
+        recent_papers=exploration.recent_papers,
+        datasets=exploration.datasets,
+        books=exploration.books,
+        milestones=[ResearchMilestone.model_validate(x) for x in planned.get("milestones", [])],
+        daily_tasks=[ResearchDailyTask.model_validate(x) for x in _build_daily_tasks(state)],
     )
