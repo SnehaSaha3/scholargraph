@@ -28,7 +28,7 @@ app.add_middleware(
 # Routes
 app.include_router(
     health_router,
-    prefix="/api",
+    prefix="/api/health",
 )
 
 app.include_router(

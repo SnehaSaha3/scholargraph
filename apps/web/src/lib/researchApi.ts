@@ -302,3 +302,102 @@ export async function inspectGitHubRepository(
 
   return response.json();
 }
+
+export type ProjectReviewFinding = {
+  severity: "critical" | "high" | "medium" | "low";
+  title: string;
+  explanation: string;
+  file?: string | null;
+  suggested_fix: string;
+};
+
+export type ProjectReview = {
+  repository: ProjectRepository;
+  relevant_files: string[];
+  review: {
+    summary: string;
+    implementation_strengths: string[];
+    research_findings: ProjectReviewFinding[];
+    code_findings: ProjectReviewFinding[];
+    reproducibility_findings: ProjectReviewFinding[];
+    next_steps: string[];
+  };
+};
+
+export async function reviewGitHubRepository(
+  githubUrl: string,
+  question: string
+): Promise<ProjectReview> {
+  const response = await fetch(
+    `${API_BASE}/api/projects/review`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        github_url: githubUrl,
+        question,
+      }),
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response
+      .json()
+      .catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `GitHub review failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+export type ResearchDiscussionMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ResearchDiscussionResponse = {
+  answer: string;
+  supporting_papers: ResearchPaper[];
+  suggested_questions: string[];
+};
+
+export async function discussResearch(
+  input: {
+    question: string;
+    research: ResearchPlan;
+    messages: ResearchDiscussionMessage[];
+    prompt: string;
+  }
+): Promise<ResearchDiscussionResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/research/discuss`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `Research discussion failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}

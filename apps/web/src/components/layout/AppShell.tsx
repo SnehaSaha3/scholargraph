@@ -8,40 +8,51 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({
+  children,
+}: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#08090c]">
-      {/* Sidebar */}
-      <Sidebar
-        collapsed={collapsed}
-        mobileOpen={mobileOpen}
-        onToggle={() => setCollapsed((value) => !value)}
-        onMobileClose={() => setMobileOpen(false)}
-      />
-
+    <div className="min-h-screen overflow-x-hidden bg-[#08090c] text-white">
       {/* Mobile overlay */}
       {mobileOpen && (
         <button
           type="button"
           aria-label="Close navigation"
           onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-[2px] md:hidden"
+          className="
+            fixed inset-0 z-30
+            bg-black/60
+            backdrop-blur-[2px]
+            md:hidden
+          "
         />
       )}
 
-      {/* Main application */}
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        onToggle={() =>
+          setCollapsed((value) => !value)
+        }
+        onMobileClose={() =>
+          setMobileOpen(false)
+        }
+      />
+
       <div
-        className={`min-h-screen transition-[margin] duration-300 ${
+        className={
           collapsed
-            ? "lg:ml-[72px]"
-            : "lg:ml-[240px]"
-        }`}
+            ? "min-h-screen transition-[margin] duration-300 lg:ml-[72px]"
+            : "min-h-screen transition-[margin] duration-300 lg:ml-[280px]"
+        }
       >
         <Topbar
-          onMenuClick={() => setMobileOpen(true)}
+          onMenuClick={() =>
+            setMobileOpen(true)
+          }
         />
 
         <main className="min-w-0 pb-16">
