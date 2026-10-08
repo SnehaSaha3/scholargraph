@@ -1,10 +1,12 @@
-import re
+import io
+import json
+import zipfile
 from urllib.parse import urlparse
 
 import httpx
 
+from app.models.llm import get_llm
 
-GITHUB_API = "https://api.github.com"
 
 IGNORED_PATHS = {
     ".git",
@@ -37,14 +39,13 @@ IGNORED_EXTENSIONS = {
 }
 
 
-def parse_github_url(url: str) -> tuple[str, str]:
-    parsed = urlparse(url)
+def parse_github_url(github_url: str) -> tuple[str, str]:
+    parsed = urlparse(github_url)
 
-    if parsed.netloc.lower() not in {
-        "github.com",
-        "www.github.com",
-    }:
-        raise ValueError("Only GitHub repository URLs are supported.")
+    if parsed.netloc.lower() != "github.com":
+        raise ValueError(
+            "Only github.com repository URLs are supported."
+        )
 
     parts = [
         part
@@ -53,103 +54,202 @@ def parse_github_url(url: str) -> tuple[str, str]:
     ]
 
     if len(parts) < 2:
-        raise ValueError("Invalid GitHub repository URL.")
+        raise ValueError(
+            "Invalid GitHub repository URL."
+        )
 
     owner = parts[0]
-    repo = parts[1].removesuffix(".git")
+    repo = parts[1]
 
-    if not re.match(r"^[A-Za-z0-9_.-]+$", owner):
-        raise ValueError("Invalid GitHub owner.")
-
-    if not re.match(r"^[A-Za-z0-9_.-]+$", repo):
-        raise ValueError("Invalid GitHub repository.")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
 
     return owner, repo
-
-
-def github_headers() -> dict[str, str]:
-    return {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "ScholarGraph",
-    }
-
-
-def get_repository(owner: str, repo: str) -> dict:
-    response = httpx.get(
-        f"{GITHUB_API}/repos/{owner}/{repo}",
-        headers=github_headers(),
-        timeout=20,
-    )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    return {
-        "name": data.get("name"),
-        "full_name": data.get("full_name"),
-        "description": data.get("description"),
-        "html_url": data.get("html_url"),
-        "default_branch": data.get("default_branch"),
-        "language": data.get("language"),
-        "stars": data.get("stargazers_count", 0),
-        "forks": data.get("forks_count", 0),
-        "open_issues": data.get("open_issues_count", 0),
-        "updated_at": data.get("updated_at"),
-        "private": data.get("private", False),
-    }
 
 
 def should_ignore(path: str) -> bool:
     parts = path.split("/")
 
-    if any(part in IGNORED_PATHS for part in parts):
+    if any(
+        part in IGNORED_PATHS
+        for part in parts
+    ):
         return True
 
-    lower = path.lower()
+    lower_path = path.lower()
 
     return any(
-        lower.endswith(extension)
+        lower_path.endswith(extension)
         for extension in IGNORED_EXTENSIONS
     )
 
 
-def get_tree(
+def download_repository_archive(
     owner: str,
     repo: str,
     branch: str,
-) -> list[dict]:
-    response = httpx.get(
-        f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{branch}",
-        params={"recursive": "1"},
-        headers=github_headers(),
-        timeout=30,
+) -> dict[str, str]:
+    """
+    Download the public GitHub repository archive once and return
+    text files as {repository_relative_path: content}.
+
+    This avoids GitHub's REST API completely.
+    """
+
+    archive_url = (
+        f"https://github.com/{owner}/{repo}"
+        f"/archive/refs/heads/{branch}.zip"
     )
 
-    response.raise_for_status()
+    try:
+        response = httpx.get(
+            archive_url,
+            timeout=60,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError as error:
+        raise RuntimeError(
+            f"Unable to download GitHub repository archive: {owner}/{repo}"
+        ) from error
 
-    tree = response.json().get("tree", [])
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Unable to download GitHub repository archive "
+            f"{owner}/{repo} ({branch}): "
+            f"HTTP {response.status_code}"
+        )
+
+    try:
+        archive = zipfile.ZipFile(
+            io.BytesIO(response.content)
+        )
+    except zipfile.BadZipFile as error:
+        raise RuntimeError(
+            "GitHub returned an invalid repository archive."
+        ) from error
+
+    files: dict[str, str] = {}
+
+    for member in archive.infolist():
+        if member.is_dir():
+            continue
+
+        name = member.filename
+
+        # GitHub archive paths look like:
+        # repository-master/src/app.ts
+        parts = name.split("/", 1)
+
+        if len(parts) != 2:
+            continue
+
+        relative_path = parts[1]
+
+        if not relative_path:
+            continue
+
+        if should_ignore(relative_path):
+            continue
+
+        try:
+            content = archive.read(member)
+        except Exception:
+            continue
+
+        # Ignore obviously binary files.
+        if b"\x00" in content[:4096]:
+            continue
+
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                text = content.decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+
+        files[relative_path] = text
+
+    return files
+
+
+def find_default_branch(
+    owner: str,
+    repo: str,
+) -> str:
+    """
+    Determine the default branch without using the GitHub REST API.
+
+    We try the two common public branch names.
+    """
+
+    for branch in ("main", "master"):
+        archive_url = (
+            f"https://github.com/{owner}/{repo}"
+            f"/archive/refs/heads/{branch}.zip"
+        )
+
+        try:
+            response = httpx.head(
+                archive_url,
+                timeout=15,
+                follow_redirects=True,
+            )
+
+            if response.status_code == 200:
+                return branch
+
+        except httpx.HTTPError:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine the repository default branch. "
+        "The repository may be private or use a non-standard branch name."
+    )
+
+
+def get_repository(
+    owner: str,
+    repo: str,
+) -> dict:
+    """
+    Build repository metadata without calling api.github.com.
+    """
+
+    branch = find_default_branch(owner, repo)
+
+    return {
+        "name": repo,
+        "full_name": f"{owner}/{repo}",
+        "description": None,
+        "html_url": f"https://github.com/{owner}/{repo}",
+        "default_branch": branch,
+        "language": None,
+        "stars": 0,
+        "forks": 0,
+        "open_issues": 0,
+        "updated_at": None,
+        "private": False,
+    }
+
+
+def get_tree(
+    repository_files: dict[str, str],
+) -> list[str]:
+    """
+    Return repository file paths from the downloaded archive.
+    """
 
     return [
-        {
-            "path": item.get("path"),
-            "type": item.get("type"),
-            "size": item.get("size", 0),
-        }
-        for item in tree
-        if item.get("path")
-        and not should_ignore(item["path"])
+        path
+        for path in repository_files.keys()
+        if not should_ignore(path)
     ]
 
 
-def detect_repository_signals(tree: list[dict]) -> dict:
-    paths = {
-        item["path"]
-        for item in tree
-        if item["path"]
-    }
-
+def detect_repository_signals(
+    paths: list[str],
+) -> dict:
     lower_paths = {
         path.lower()
         for path in paths
@@ -157,7 +257,8 @@ def detect_repository_signals(tree: list[dict]) -> dict:
 
     return {
         "has_readme": any(
-            path.startswith("readme")
+            path == "readme.md"
+            or path.endswith("/readme.md")
             for path in lower_paths
         ),
         "has_tests": any(
@@ -165,16 +266,17 @@ def detect_repository_signals(tree: list[dict]) -> dict:
             for path in lower_paths
         ),
         "has_requirements": any(
-            path in {
-                "requirements.txt",
-                "pyproject.toml",
-                "poetry.lock",
-            }
+            path.endswith("requirements.txt")
+            or path.endswith("pyproject.toml")
             for path in lower_paths
         ),
-        "has_package_json": "package.json" in lower_paths,
+        "has_package_json": any(
+            path.endswith("package.json")
+            for path in lower_paths
+        ),
         "has_docker": any(
             "dockerfile" in path
+            or "docker-compose" in path
             for path in lower_paths
         ),
         "has_ci": any(
@@ -182,115 +284,576 @@ def detect_repository_signals(tree: list[dict]) -> dict:
             for path in lower_paths
         ),
         "has_config": any(
-            path.endswith((
-                ".yaml",
-                ".yml",
-                ".toml",
-                ".json",
-            ))
+            "config" in path
+            for path in lower_paths
+        ),
+        "has_blockchain": any(
+            any(
+                keyword in path
+                for keyword in (
+                    "hardhat",
+                    "contract",
+                    "solidity",
+                    "blockchain",
+                    "web3",
+                    "ethers",
+                    "foundry",
+                )
+            )
+            for path in lower_paths
+        ),
+        "has_ai_ml": any(
+            any(
+                keyword in path
+                for keyword in (
+                    "model",
+                    "train",
+                    "inference",
+                    "predict",
+                    "dataset",
+                    "agent",
+                    "ml",
+                    "ai",
+                    "embedding",
+                    "llm",
+                    "langchain",
+                    "langgraph",
+                )
+            )
+            for path in lower_paths
+        ),
+        "has_frontend": any(
+            any(
+                keyword in path
+                for keyword in (
+                    "frontend",
+                    "client",
+                    "src/components",
+                    "src/pages",
+                    "src/app",
+                )
+            )
+            for path in lower_paths
+        ),
+        "has_backend": any(
+            any(
+                keyword in path
+                for keyword in (
+                    "backend",
+                    "server",
+                    "api",
+                    "routes",
+                    "controllers",
+                    "services",
+                )
+            )
             for path in lower_paths
         ),
         "possible_env_files": [
             path
             for path in paths
-            if path.lower() in {
-                ".env",
-                ".env.local",
-                ".env.production",
-            }
+            if path.endswith(".env")
+            or ".env." in path
         ],
     }
 
 
 def select_relevant_files(
-    tree: list[dict],
-    limit: int = 8,
+    paths: list[str],
+    max_files: int = 14,
 ) -> list[str]:
-    priority_names = {
-        "readme.md": 100,
-        "requirements.txt": 95,
-        "pyproject.toml": 95,
-        "package.json": 95,
-        "train.py": 90,
-        "training.py": 90,
-        "model.py": 85,
-        "models.py": 85,
-        "evaluate.py": 85,
-        "evaluation.py": 85,
-        "dataset.py": 80,
-        "datasets.py": 80,
-        "config.yaml": 75,
-        "config.yml": 75,
+    """
+    Select a balanced set of repository evidence.
+    """
+
+    lower_to_original = {
+        path.lower(): path
+        for path in paths
     }
 
-    candidates = []
+    selected: list[str] = []
+    selected_set: set[str] = set()
 
-    for item in tree:
-        path = item["path"]
+    def add(path: str) -> None:
+        if path in selected_set:
+            return
 
-        if item["type"] != "blob":
-            continue
+        selected.append(path)
+        selected_set.add(path)
 
-        filename = path.split("/")[-1].lower()
+    def find_matches(
+        keywords: tuple[str, ...],
+        extensions: tuple[str, ...] = (),
+    ) -> list[str]:
+        matches = []
 
-        score = priority_names.get(filename, 0)
+        for path in paths:
+            lower = path.lower()
 
-        if filename.endswith((
-            ".py",
-            ".ts",
-            ".tsx",
-            ".js",
-            ".jsx",
-        )):
-            score += 20
-
-        if any(
-            keyword in filename
-            for keyword in (
-                "train",
-                "model",
-                "dataset",
-                "eval",
-                "test",
-                "experiment",
-                "config",
+            keyword_match = any(
+                keyword in lower
+                for keyword in keywords
             )
-        ):
-            score += 25
 
-        if score:
-            candidates.append((score, path))
+            extension_match = (
+                not extensions
+                or lower.endswith(extensions)
+            )
 
-    candidates.sort(
-        key=lambda item: (-item[0], item[1])
+            if keyword_match and extension_match:
+                matches.append(path)
+
+        return matches
+
+    def add_first(
+        candidates: list[str],
+        count: int,
+    ) -> None:
+        for path in candidates:
+            if len(selected) >= max_files:
+                return
+
+            if path in selected_set:
+                continue
+
+            add(path)
+
+            count -= 1
+
+            if count <= 0:
+                return
+
+    # 1. Documentation / root configuration
+
+    for filename in (
+        "readme.md",
+        "package.json",
+        "requirements.txt",
+        "pyproject.toml",
+        "dockerfile",
+    ):
+        path = lower_to_original.get(filename)
+
+        if path:
+            add(path)
+
+    # 2. AI / ML / research
+
+    add_first(
+        find_matches(
+            (
+                "model",
+                "train",
+                "inference",
+                "predict",
+                "dataset",
+                "agent",
+                "ml",
+                "ai",
+                "llm",
+                "langchain",
+                "langgraph",
+                "recommend",
+                "fraud",
+                "advisor",
+            ),
+            (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+            ),
+        ),
+        3,
     )
 
-    return [
-        path
-        for _, path in candidates[:limit]
-    ]
+    # 3. Blockchain
+
+    add_first(
+        find_matches(
+            (
+                "hardhat",
+                "contract",
+                "contracts",
+                "solidity",
+                "blockchain",
+                "web3",
+                "ethers",
+                "foundry",
+            ),
+            (
+                ".sol",
+                ".ts",
+                ".js",
+                ".json",
+            ),
+        ),
+        2,
+    )
+
+    # 4. Backend / API / services
+
+    add_first(
+        find_matches(
+            (
+                "backend",
+                "server",
+                "api",
+                "route",
+                "routes",
+                "controller",
+                "controllers",
+                "service",
+                "services",
+            ),
+            (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+            ),
+        ),
+        2,
+    )
+
+    # 5. Frontend
+
+    add_first(
+        find_matches(
+            (
+                "frontend",
+                "client",
+                "components",
+                "pages",
+                "src/app",
+                "src/pages",
+            ),
+            (
+                ".tsx",
+                ".ts",
+                ".jsx",
+                ".js",
+            ),
+        ),
+        2,
+    )
+
+    # 6. Shipment / logistics / orders
+
+    add_first(
+        find_matches(
+            (
+                "shipment",
+                "shipping",
+                "logistics",
+                "delivery",
+                "route",
+                "order",
+                "transport",
+            ),
+            (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+            ),
+        ),
+        2,
+    )
+
+    # 7. Experimentation / evaluation
+
+    add_first(
+        find_matches(
+            (
+                "experiment",
+                "evaluation",
+                "evaluate",
+                "metric",
+                "test",
+                "tests",
+                "benchmark",
+            ),
+            (
+                ".py",
+                ".ts",
+                ".tsx",
+                ".js",
+                ".jsx",
+            ),
+        ),
+        2,
+    )
+
+    # 8. General source fallback
+
+    add_first(
+        [
+            path
+            for path in paths
+            if path.lower().endswith(
+                (
+                    ".py",
+                    ".ts",
+                    ".tsx",
+                    ".js",
+                    ".jsx",
+                    ".java",
+                    ".go",
+                    ".rs",
+                    ".cpp",
+                    ".c",
+                )
+            )
+        ],
+        max_files - len(selected),
+    )
+
+    return selected[:max_files]
 
 
-def inspect_repository(url: str) -> dict:
-    owner, repo = parse_github_url(url)
+def compact_file(
+    path: str,
+    content: str,
+    max_chars: int = 2500,
+) -> dict:
+    """
+    Keep repository evidence small enough for the implementation
+    advisor's LLM context.
 
-    repository = get_repository(owner, repo)
+    The advisor needs implementation signals, not complete source files.
+    """
 
-    tree = get_tree(
+    if len(content) > max_chars:
+        content = (
+            content[:max_chars]
+            + "\n\n[FILE CONTENT TRUNCATED]"
+        )
+
+    return {
+        "path": path,
+        "content": content,
+    }
+
+
+def build_repository_context(
+    github_url: str,
+) -> tuple[dict, list[str], dict[str, str]]:
+    """
+    Download the repository once and derive all inspection data
+    locally from the archive.
+    """
+
+    owner, repo = parse_github_url(github_url)
+
+    branch = find_default_branch(
         owner,
         repo,
-        repository["default_branch"],
     )
 
-    signals = detect_repository_signals(tree)
+    repository_files = download_repository_archive(
+        owner,
+        repo,
+        branch,
+    )
 
-    relevant_files = select_relevant_files(tree)
+    paths = get_tree(
+        repository_files
+    )
+
+    repository = {
+        "name": repo,
+        "full_name": f"{owner}/{repo}",
+        "description": None,
+        "html_url": f"https://github.com/{owner}/{repo}",
+        "default_branch": branch,
+        "language": None,
+        "stars": 0,
+        "forks": 0,
+        "open_issues": 0,
+        "updated_at": None,
+        "private": False,
+    }
+
+    return (
+        repository,
+        paths,
+        repository_files,
+    )
+
+
+def inspect_repository(
+    github_url: str,
+) -> dict:
+    repository, paths, _ = build_repository_context(
+        github_url
+    )
+
+    signals = detect_repository_signals(
+        paths
+    )
+
+    relevant_files = select_relevant_files(
+        paths,
+        max_files=10,
+    )
 
     return {
         "repository": repository,
         "signals": signals,
         "tree_summary": {
-            "total_files": len(tree),
+            "total_files": len(paths),
             "relevant_files": relevant_files,
         },
+    }
+
+
+def build_review_evidence(
+    github_url: str,
+    question: str,
+) -> dict:
+    """
+    Build compact repository evidence for the
+    research implementation advisor.
+
+    GitHub REST API is intentionally not used here.
+    """
+
+    repository, paths, repository_files = (
+        build_repository_context(
+            github_url
+        )
+    )
+
+    signals = detect_repository_signals(
+        paths
+    )
+
+    relevant_files = select_relevant_files(
+        paths,
+        max_files=14,
+    )
+
+    files = []
+
+    for path in relevant_files:
+      content = repository_files.get(path)
+
+      if not content:
+        continue
+
+    files.append(
+        compact_file(
+            path,
+            content,
+            max_chars=1800,
+        )
+    )
+
+    return {
+        "question": question,
+        "repository": repository,
+        "signals": signals,
+        "relevant_files": relevant_files,
+        "files": files,
+    }
+
+
+# Kept only for compatibility with any older imports.
+# The current Projects endpoint should use
+# build_review_evidence() + research_implementation.py.
+
+def research_review(
+    github_url: str,
+    question: str,
+) -> dict:
+    evidence = build_review_evidence(
+        github_url,
+        question,
+    )
+
+    llm = get_llm()
+
+    prompt = f"""
+You are ScholarGraph's research-aware
+repository reviewer.
+
+Research question:
+{evidence["question"]}
+
+Repository:
+{evidence["repository"]["full_name"]}
+
+Repository description:
+{evidence["repository"]["description"]}
+
+Repository signals:
+{evidence["signals"]}
+
+Relevant files:
+{evidence["relevant_files"]}
+
+Source evidence:
+{evidence["files"]}
+
+Review the implementation against the
+research question.
+
+Return ONLY valid JSON.
+"""
+
+    response = llm.invoke(prompt)
+
+    content = response.content
+
+    if isinstance(content, list):
+        content = "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict)
+        )
+
+    content = str(content).strip()
+
+    if content.startswith("```"):
+        content = (
+            content
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as error:
+        print(
+            "[github_review] Invalid model output:"
+        )
+        print(content)
+
+        raise RuntimeError(
+            "GitHub research review returned invalid JSON."
+        ) from error
+
+    usage = getattr(
+        response,
+        "usage_metadata",
+        None,
+    )
+
+    if usage:
+        print(
+            "[github_review] token usage:",
+            usage,
+        )
+
+    return {
+        "repository": evidence["repository"],
+        "relevant_files": evidence[
+            "relevant_files"
+        ],
+        "review": result,
     }
