@@ -5,7 +5,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.research import router as research_router
 from app.api.routes.resources import router as resources_router
 from app.api.projects import router as projects_router
-
+from app.api.routes.auth import router as auth_router
 app = FastAPI(
     title="ScholarGraph Research Engine",
     version="0.1.0",
@@ -26,6 +26,7 @@ app.add_middleware(
 
 
 # Routes
+app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(
     health_router,
     prefix="/api/health",

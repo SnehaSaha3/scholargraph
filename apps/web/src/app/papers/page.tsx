@@ -1,6 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import {
   ExternalLink,
   FileText,
@@ -9,31 +14,33 @@ import {
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/layout/AppShell";
-
 import {
   ResearchPaper,
   searchPapers,
 } from "@/lib/researchApi";
 
-
 export default function PapersPage() {
   const searchParams = useSearchParams();
-
   const urlQuery = searchParams.get("query") ?? "";
 
-  const [query, setQuery] = useState(urlQuery);
+  const [queryDraft, setQueryDraft] = useState({
+    source: urlQuery,
+    value: urlQuery,
+  });
+
+  const query =
+    queryDraft.source === urlQuery
+      ? queryDraft.value
+      : urlQuery;
+
   const [papers, setPapers] = useState<ResearchPaper[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-
-  async function loadPapers(
-    searchQuery: string
-  ) {
+  const loadPapers = useCallback(async (searchQuery: string) => {
     const trimmedQuery = searchQuery.trim();
 
     if (!trimmedQuery) {
-      setPapers([]);
       return;
     }
 
@@ -41,27 +48,15 @@ export default function PapersPage() {
     setError("");
 
     try {
-      console.log(
-        "ScholarGraph paper search:",
-        trimmedQuery
-      );
+      console.log("ScholarGraph paper search:", trimmedQuery);
 
-      const results = await searchPapers(
-        trimmedQuery
-      );
+      const results = await searchPapers(trimmedQuery);
 
-      console.log(
-        "ScholarGraph papers received:",
-        results
-      );
+      console.log("ScholarGraph papers received:", results);
 
       setPapers(results);
     } catch (err) {
-      console.error(
-        "ScholarGraph paper error:",
-        err
-      );
-
+      console.error("ScholarGraph paper error:", err);
       setPapers([]);
 
       setError(
@@ -72,32 +67,26 @@ export default function PapersPage() {
     } finally {
       setLoading(false);
     }
-  }
-
+  }, []);
 
   useEffect(() => {
     const trimmedQuery = urlQuery.trim();
 
-    setQuery(urlQuery);
+    if (trimmedQuery) {
+  // Intentional: synchronize URL query changes with API search results.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  void loadPapers(trimmedQuery);
+}
+  }, [urlQuery, loadPapers]);
 
-    if (!trimmedQuery) {
-      setPapers([]);
-      setError("");
-      return;
-    }
-
-    void loadPapers(trimmedQuery);
-  }, [urlQuery]);
-
-
-  function handleSearch(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     void loadPapers(query);
   }
 
+  const hasActiveQuery = Boolean(
+    urlQuery.trim() || query.trim()
+  );
 
   const foundationalPapers = papers.filter(
     (paper) => paper.year > 0 && paper.year < 2022
@@ -107,11 +96,9 @@ export default function PapersPage() {
     (paper) => paper.year >= 2022
   );
 
-
   return (
     <AppShell>
       <main className="mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-10 lg:pt-10">
-
         <section className="mb-10">
           <div className="mb-2 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
@@ -133,7 +120,6 @@ export default function PapersPage() {
           </div>
         </section>
 
-
         <form
           onSubmit={handleSearch}
           className="mb-10 flex flex-col gap-3 sm:flex-row"
@@ -145,9 +131,13 @@ export default function PapersPage() {
             />
 
             <input
+              aria-label="Search papers, topics, or research areas"
               value={query}
               onChange={(event) =>
-                setQuery(event.target.value)
+                setQueryDraft({
+                  source: urlQuery,
+                  value: event.target.value,
+                })
               }
               placeholder="Search papers, topics, or research areas..."
               className="h-12 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] pl-11 pr-4 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#9b8cff]/40"
@@ -163,23 +153,23 @@ export default function PapersPage() {
           </button>
         </form>
 
-
         {error && (
-          <div className="mb-8 rounded-xl border border-red-400/10 bg-red-400/[0.04] px-5 py-4 text-sm text-red-200/80">
+          <div
+            role="alert"
+            className="mb-8 rounded-xl border border-red-400/10 bg-red-400/[0.04] px-5 py-4 text-sm text-red-200/80"
+          >
             {error}
           </div>
         )}
 
-
         {loading ? (
           <LoadingState />
-        ) : !query.trim() ? (
+        ) : !hasActiveQuery ? (
           <EmptyPapers hasQuery={false} />
         ) : papers.length === 0 ? (
           <EmptyPapers hasQuery={true} />
         ) : (
           <div className="space-y-12">
-
             {foundationalPapers.length > 0 && (
               <PaperSection
                 title="Foundational papers"
@@ -195,15 +185,12 @@ export default function PapersPage() {
                 papers={recentPapers}
               />
             )}
-
           </div>
         )}
-
       </main>
     </AppShell>
   );
 }
-
 
 function PaperSection({
   title,
@@ -238,7 +225,6 @@ function PaperSection({
   );
 }
 
-
 function PaperCard({
   paper,
 }: {
@@ -247,9 +233,7 @@ function PaperCard({
   return (
     <article className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 transition hover:border-white/[0.12] hover:bg-white/[0.035]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-
         <div className="min-w-0 flex-1">
-
           <h3 className="text-base font-medium leading-6 text-white">
             {paper.title}
           </h3>
@@ -264,13 +248,8 @@ function PaperCard({
 
             {paper.year > 0 && (
               <>
-                <span className="text-white/15">
-                  •
-                </span>
-
-                <span>
-                  {paper.year}
-                </span>
+                <span className="text-white/15">•</span>
+                <span>{paper.year}</span>
               </>
             )}
           </div>
@@ -280,9 +259,7 @@ function PaperCard({
               {paper.description}
             </p>
           )}
-
         </div>
-
 
         {paper.url && (
           <a
@@ -292,16 +269,13 @@ function PaperCard({
             className="inline-flex shrink-0 items-center gap-2 self-start rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-xs font-medium text-white/70 transition hover:border-[#9b8cff]/30 hover:text-white"
           >
             Open paper
-
             <ExternalLink size={13} />
           </a>
         )}
-
       </div>
     </article>
   );
 }
-
 
 function EmptyPapers({
   hasQuery,
@@ -310,7 +284,6 @@ function EmptyPapers({
 }) {
   return (
     <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] px-6 text-center">
-
       <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.025]">
         <FileText
           size={21}
@@ -333,7 +306,6 @@ function EmptyPapers({
   );
 }
 
-
 function LoadingState() {
   return (
     <div className="space-y-3">
@@ -343,14 +315,12 @@ function LoadingState() {
           className="animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5"
         >
           <div className="h-5 w-3/4 rounded bg-white/[0.06]" />
-
           <div className="mt-3 h-3 w-1/3 rounded bg-white/[0.05]" />
-
           <div className="mt-4 h-3 w-full rounded bg-white/[0.04]" />
-
           <div className="mt-2 h-3 w-5/6 rounded bg-white/[0.04]" />
         </div>
       ))}
     </div>
   );
 }
+

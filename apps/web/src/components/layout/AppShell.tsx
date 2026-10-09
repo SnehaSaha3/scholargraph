@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
@@ -16,21 +17,6 @@ export default function AppShell({
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#08090c] text-white">
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setMobileOpen(false)}
-          className="
-            fixed inset-0 z-30
-            bg-black/60
-            backdrop-blur-[2px]
-            md:hidden
-          "
-        />
-      )}
-
       <Sidebar
         collapsed={collapsed}
         mobileOpen={mobileOpen}
@@ -42,12 +28,22 @@ export default function AppShell({
         }
       />
 
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setMobileOpen(false)}
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
       <div
-        className={
+        className={[
+          "min-h-screen transition-[margin] duration-300",
           collapsed
-            ? "min-h-screen transition-[margin] duration-300 lg:ml-[72px]"
-            : "min-h-screen transition-[margin] duration-300 lg:ml-[280px]"
-        }
+            ? "lg:ml-[76px]"
+            : "lg:ml-[260px]",
+        ].join(" ")}
       >
         <Topbar
           onMenuClick={() =>
@@ -55,7 +51,7 @@ export default function AppShell({
           }
         />
 
-        <main className="min-w-0 pb-16">
+        <main className="min-w-0">
           {children}
         </main>
       </div>

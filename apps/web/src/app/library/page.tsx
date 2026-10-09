@@ -1,6 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -12,7 +17,6 @@ import {
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/layout/AppShell";
-
 import {
   ResearchResource,
   searchBooks,
@@ -20,19 +24,26 @@ import {
 
 export default function LibraryPage() {
   const searchParams = useSearchParams();
-
   const urlQuery = searchParams.get("query") ?? "";
 
-  const [query, setQuery] = useState(urlQuery);
+  const [queryDraft, setQueryDraft] = useState({
+    source: urlQuery,
+    value: urlQuery,
+  });
+
+  const query =
+    queryDraft.source === urlQuery
+      ? queryDraft.value
+      : urlQuery;
+
   const [books, setBooks] = useState<ResearchResource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadBooks(searchQuery: string) {
+  const loadBooks = useCallback(async (searchQuery: string) => {
     const trimmedQuery = searchQuery.trim();
 
     if (!trimmedQuery) {
-      setBooks([]);
       return;
     }
 
@@ -54,11 +65,7 @@ export default function LibraryPage() {
 
       setBooks(results);
     } catch (err) {
-      console.error(
-        "ScholarGraph library error:",
-        err
-      );
-
+      console.error("ScholarGraph library error:", err);
       setBooks([]);
 
       setError(
@@ -69,48 +76,30 @@ export default function LibraryPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  /*
-   * If Research → View more opens:
-   *
-   * /library?query=breast%20cancer
-   *
-   * automatically search for that query.
-   *
-   * If the user opens:
-   *
-   * /library
-   *
-   * nothing is searched.
-   */
   useEffect(() => {
     const trimmedQuery = urlQuery.trim();
 
-    setQuery(urlQuery);
+   if (trimmedQuery) {
+  // Intentional: synchronize URL query changes with API search results.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  void loadBooks(trimmedQuery);
+}
+  }, [urlQuery, loadBooks]);
 
-    if (!trimmedQuery) {
-      setBooks([]);
-      setError("");
-      return;
-    }
-
-    void loadBooks(trimmedQuery);
-  }, [urlQuery]);
-
-  function handleSearch(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     void loadBooks(query);
   }
+
+  const hasActiveQuery = Boolean(
+    urlQuery.trim() || query.trim()
+  );
 
   return (
     <AppShell>
       <main className="mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-10 lg:pt-10">
-
-        {/* Header */}
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-[#686c77]">
@@ -119,10 +108,7 @@ export default function LibraryPage() {
 
             <div className="mt-2 flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#9b8cff]/10 text-[#9b8cff]">
-                <LibraryBig
-                  size={17}
-                  strokeWidth={1.7}
-                />
+                <LibraryBig size={17} strokeWidth={1.7} />
               </div>
 
               <h1 className="text-3xl font-semibold tracking-[-0.03em] text-white">
@@ -136,7 +122,6 @@ export default function LibraryPage() {
           </div>
         </div>
 
-        {/* Search */}
         <section className="mt-8 rounded-2xl border border-[#272a33] bg-[#0d0f14] p-5 sm:p-6">
           <form
             onSubmit={handleSearch}
@@ -150,9 +135,13 @@ export default function LibraryPage() {
               />
 
               <input
+                aria-label="Search books, authors, and topics"
                 value={query}
                 onChange={(event) =>
-                  setQuery(event.target.value)
+                  setQueryDraft({
+                    source: urlQuery,
+                    value: event.target.value,
+                  })
                 }
                 placeholder="Search books, authors, topics..."
                 className="h-11 w-full rounded-lg border border-white/[0.08] bg-white/[0.025] pl-11 pr-4 text-sm text-[#d4d5da] outline-none transition placeholder:text-[#555963] focus:border-[#9b8cff]/40"
@@ -164,34 +153,32 @@ export default function LibraryPage() {
               disabled={loading || !query.trim()}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#9b8cff]/25 bg-[#9b8cff]/10 px-5 text-xs font-medium text-[#c5beff] transition hover:bg-[#9b8cff]/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Search
-                size={14}
-                strokeWidth={1.8}
-              />
-
+              <Search size={14} strokeWidth={1.8} />
               {loading ? "Searching..." : "Search"}
             </button>
           </form>
         </section>
 
-        {/* Error */}
         {error && (
-          <div className="mt-4 rounded-xl border border-red-400/20 bg-red-400/[0.04] p-4 text-xs text-red-300">
+          <div
+            role="alert"
+            className="mt-4 rounded-xl border border-red-400/20 bg-red-400/[0.04] p-4 text-xs text-red-300"
+          >
             {error}
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
-          <div className="mt-6 flex items-center gap-3 text-xs text-[#777b86]">
+          <div
+            role="status"
+            className="mt-6 flex items-center gap-3 text-xs text-[#777b86]"
+          >
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/[0.08] border-t-[#9b8cff]" />
-
             Searching Open Library...
           </div>
         )}
 
-        {/* Results */}
-        {!loading && books.length > 0 && (
+        {!loading && hasActiveQuery && books.length > 0 && (
           <section className="mt-8">
             <div className="mb-5">
               <p className="text-[10px] uppercase tracking-[0.16em] text-[#656974]">
@@ -221,19 +208,13 @@ export default function LibraryPage() {
           </section>
         )}
 
-        {/* Empty */}
-        {!loading &&
-          !error &&
-          books.length === 0 && (
-            <EmptyLibrary
-              hasQuery={Boolean(urlQuery.trim())}
-            />
-          )}
+        {!loading && !error && books.length === 0 && (
+          <EmptyLibrary hasQuery={hasActiveQuery} />
+        )}
       </main>
     </AppShell>
   );
 }
-
 
 function BookCard({
   book,
@@ -243,8 +224,7 @@ function BookCard({
   const publicationYear = book.year;
 
   const authors =
-    book.authors &&
-    book.authors.length > 0
+    book.authors && book.authors.length > 0
       ? book.authors.join(", ")
       : "Author information unavailable";
 
@@ -264,21 +244,18 @@ function BookCard({
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#272a33] bg-[#0d0f14] transition hover:border-white/[0.12]">
-
-      {/* Cover */}
       <div className="flex h-64 items-center justify-center overflow-hidden border-b border-white/[0.06] bg-black/20">
         {book.cover_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={book.cover_url}
             alt={`Cover of ${book.title}`}
+            loading="lazy"
             className="h-full w-full object-cover"
           />
         ) : (
           <div className="flex flex-col items-center text-[#555963]">
-            <BookOpen
-              size={40}
-              strokeWidth={1.2}
-            />
+            <BookOpen size={40} strokeWidth={1.2} />
 
             <span className="mt-3 text-[10px]">
               No cover available
@@ -287,9 +264,7 @@ function BookCard({
         )}
       </div>
 
-      {/* Details */}
       <div className="flex flex-1 flex-col p-5">
-
         <span className="w-fit rounded-md bg-white/[0.035] px-2 py-1 text-[9px] uppercase tracking-[0.12em] text-[#686c77]">
           {book.resource_type}
         </span>
@@ -298,7 +273,6 @@ function BookCard({
           {book.title}
         </h2>
 
-        {/* Author */}
         <div className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-[#777b86]">
           <UserRound
             size={13}
@@ -306,53 +280,37 @@ function BookCard({
             strokeWidth={1.6}
           />
 
-          <span className="line-clamp-2">
-            {authors}
-          </span>
+          <span className="line-clamp-2">{authors}</span>
         </div>
 
-        {/* Year */}
-        {publicationYear !== undefined &&
-          publicationYear > 0 && (
-            <div className="mt-2 flex items-center gap-2 text-[10px] text-[#5f636e]">
-              <CalendarDays
-                size={12}
-                strokeWidth={1.6}
-              />
+        {publicationYear !== undefined && publicationYear > 0 && (
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-[#5f636e]">
+            <CalendarDays size={12} strokeWidth={1.6} />
+            <span>First published {publicationYear}</span>
+          </div>
+        )}
 
-              <span>
-                First published {publicationYear}
-              </span>
-            </div>
-          )}
-
-        {/* Description */}
         {book.description && (
           <p className="mt-4 line-clamp-3 text-[11px] leading-5 text-[#70747f]">
             {book.description}
           </p>
         )}
 
-        {/* Subjects */}
-        {book.subjects &&
-          book.subjects.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {book.subjects
-                .slice(0, 4)
-                .map((subject) => (
-                  <span
-                    key={subject}
-                    className="rounded-md bg-white/[0.03] px-2 py-1 text-[9px] text-[#5f636e]"
-                  >
-                    {subject}
-                  </span>
-                ))}
-            </div>
-          )}
+        {book.subjects && book.subjects.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {book.subjects.slice(0, 4).map((subject) => (
+              <span
+                key={subject}
+                className="rounded-md bg-white/[0.03] px-2 py-1 text-[9px] text-[#5f636e]"
+              >
+                {subject}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="flex-1" />
 
-        {/* External source */}
         <div className="mt-5 border-t border-white/[0.06] pt-4">
           {actionUrl ? (
             <a
@@ -361,11 +319,7 @@ function BookCard({
               rel="noreferrer"
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/[0.07] px-3 py-2.5 text-[10px] text-[#777b86] transition hover:border-[#9b8cff]/30 hover:text-[#9b8cff]"
             >
-              <ExternalLink
-                size={12}
-                strokeWidth={1.6}
-              />
-
+              <ExternalLink size={12} strokeWidth={1.6} />
               {actionLabel}
             </a>
           ) : (
@@ -378,7 +332,6 @@ function BookCard({
     </article>
   );
 }
-
 
 function EmptyLibrary({
   hasQuery,
@@ -407,3 +360,4 @@ function EmptyLibrary({
     </div>
   );
 }
+

@@ -1,8 +1,14 @@
 import json
+import logging
+import re
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from app.models.llm import get_llm
+
+
+logger = logging.getLogger(__name__)
 
 
 class Stage(BaseModel):
@@ -30,9 +36,84 @@ class ImplementationAdvisorResult(BaseModel):
     next_implementation: NextImplementation
 
 
-def analyze_research_implementation(
-    evidence: dict,
-) -> dict:
+def _extract_json_object(content: Any) -> str:
+    """Extract a JSON object from a model response."""
+
+    if isinstance(content, list):
+        parts = []
+
+        for part in content:
+            if isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            elif isinstance(part, str):
+                parts.append(part)
+
+        content = "".join(parts)
+
+    if not isinstance(content, str):
+        raise ValueError(
+            f"Unexpected model response type: {type(content).__name__}"
+        )
+
+    content = content.strip()
+
+    if not content:
+        raise ValueError("The model returned an empty response.")
+
+    # Remove an optional Markdown code fence.
+    content = re.sub(
+        r"\A```(?:json)?[ \t]*\r?\n?",
+        "",
+        content,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    content = re.sub(r"\r?\n?```[ \t]*\Z", "", content, count=1)
+    content = content.strip()
+
+    # Find the first JSON object and its matching closing brace.
+    # This avoids accidentally including explanatory text after the JSON.
+    start = content.find("{")
+
+    if start == -1:
+        raise ValueError("No JSON object was found in the model response.")
+
+    in_string = False
+    escaped = False
+    depth = 0
+
+    for index in range(start, len(content)):
+        char = content[index]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+
+            if depth == 0:
+                return content[start : index + 1]
+
+    raise ValueError(
+        "The model response contains an incomplete JSON object. "
+        "The output may have been truncated."
+    )
+
+
+def analyze_research_implementation(evidence: dict) -> dict:
     llm = get_llm()
 
     compact = {
@@ -161,7 +242,7 @@ Only recommend LangChain/LangGraph when orchestration or
 multi-step reasoning genuinely requires it.
 
 10. Do not claim that an API or model is the best choice unless
-the repository evidence or research goal supports it.
+the repository evidence or research goal supports that claim.
 
 11. Keep implementation concrete.
 
@@ -182,15 +263,13 @@ than inventing a research direction.
 OUTPUT
 --------------------------------------------------
 
-Return ONLY valid JSON.
+Return ONLY valid JSON. Do not include Markdown fences or commentary.
 
 Use exactly this structure:
 
 {{
   "summary": "2 concise sentences describing what the project currently implements and how that relates to the research goal.",
-
   "current_stage": "The current research/implementation stage.",
-
   "roadmap": [
     {{
       "title": "implementation stage",
@@ -200,80 +279,76 @@ Use exactly this structure:
       "why": "why this stage matters for the research goal or null"
     }}
   ],
-
   "next_implementation": {{
     "title": "one concrete research-specific implementation to build next",
-
     "why_now": "why this is the correct next implementation for the research goal",
-
     "recommended_tools": [
       "specific technology/model/tool"
     ],
-
     "alternatives": [
       "reasonable alternative"
     ],
-
     "prerequisites": [
       "specific prerequisite"
     ],
-
     "implementation_steps": [
       "concrete implementation step"
     ],
-
     "what_comes_after": "the next research implementation after this stage"
   }}
 }}
-
-Remember:
 
 The answer is NOT:
 "What software feature should the developer add?"
 
 The answer is:
-
 "What research-related capability should the researcher
 implement next, given what the repository already contains?"
 
-No Markdown fences.
+Ensure the response is complete, valid JSON and conforms to
+the schema. Keep all lists within the stated limits.
 """
 
-    response = llm.invoke(prompt)
-
-    content = response.content
-
-    if isinstance(content, list):
-        content = "".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict)
-        )
-
-    content = (
-        str(content)
-        .strip()
-        .replace("```json", "")
-        .replace("```", "")
-        .strip()
-    )
-
     try:
-        result = ImplementationAdvisorResult.model_validate(
-            json.loads(content)
+        response = llm.invoke(prompt)
+        content = _extract_json_object(response.content)
+        parsed = json.loads(content)
+        result = ImplementationAdvisorResult.model_validate(parsed)
+
+    except (json.JSONDecodeError, ValidationError, ValueError) as error:
+        raw_content = locals().get("content", None)
+
+        if raw_content is None:
+            response_obj = locals().get("response")
+            raw_content = getattr(response_obj, "content", "")
+
+        if isinstance(raw_content, list):
+            raw_content = str(raw_content)
+
+        raw_content = str(raw_content)
+
+        logger.error(
+            "[implementation_advisor] Invalid model output. "
+            "Reason: %s. Output length: %s. Output ending: %r",
+            error,
+            len(raw_content),
+            raw_content[-500:],
         )
-    except (json.JSONDecodeError, ValidationError) as error:
-        print(
-            "[implementation_advisor] Invalid model output:"
-        )
-        print(content)
 
         raise RuntimeError(
-            "Implementation advisor returned invalid JSON."
+            "Implementation advisor returned invalid or incomplete JSON. "
+            "Check the backend logs for details."
         ) from error
+
+    except Exception:
+        logger.exception(
+            "[implementation_advisor] Model generation failed."
+        )
+        raise
 
     return {
         "repository": evidence["repository"],
         "relevant_files": evidence["relevant_files"],
         "advisor": result.model_dump(),
     }
+

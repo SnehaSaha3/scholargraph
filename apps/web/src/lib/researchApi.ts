@@ -2,6 +2,88 @@ const API_BASE =
   process.env.NEXT_PUBLIC_RESEARCH_API_URL ??
   "http://localhost:8000";
 
+
+
+
+/* =========================================================
+   AUTHENTICATION
+========================================================= */
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  avatar_url: string | null;
+  email_verified: boolean;
+};
+
+async function authRequest<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...(options.body
+        ? { "Content-Type": "application/json" }
+        : {}),
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      data?.detail ?? `Authentication failed: ${response.status}`
+    );
+  }
+
+  return data as T;
+}
+
+export function registerUser(input: {
+  email: string;
+  password: string;
+  display_name: string;
+}): Promise<AuthUser> {
+  return authRequest<AuthUser>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function loginUser(input: {
+  email: string;
+  password: string;
+}): Promise<AuthUser> {
+  return authRequest<AuthUser>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getCurrentUser(): Promise<AuthUser> {
+  return authRequest<AuthUser>("/api/auth/me");
+}
+
+export function logoutUser(): Promise<void> {
+  return authRequest<void>("/api/auth/logout", {
+    method: "POST",
+  });
+}
+
+/* =========================================================
+   RESEARCH
+========================================================= */
+
 export type ResearchResource = {
   title: string;
   resource_type: string;
@@ -57,6 +139,69 @@ export type ResearchDailyTask = {
   resource_url?: string | null;
 };
 
+/* =========================================================
+   RESEARCH EXPLORATION
+========================================================= */
+
+export type ResearchExploration = {
+  question: string;
+
+  understanding: string;
+
+  research_scope: string[];
+  key_concepts: string[];
+  established_approaches: string[];
+  challenges: string[];
+  research_directions: string[];
+  research_gaps: string[];
+
+  topics: string[];
+  prerequisites: string[];
+
+  foundational_papers: ResearchPaper[];
+  recent_papers: ResearchPaper[];
+
+  datasets: ResearchResource[];
+  books: ResearchResource[];
+};
+
+export async function exploreResearch(
+  question: string
+): Promise<ResearchExploration> {
+  const response = await fetch(
+    `${API_BASE}/api/research/explore`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify({
+        question,
+      }),
+
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `Research exploration failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/* =========================================================
+   RESEARCH PLAN
+========================================================= */
+
 export type ResearchPlan = {
   question: string;
   understanding: string;
@@ -83,7 +228,6 @@ export type ResearchPlan = {
   daily_tasks: ResearchDailyTask[];
 };
 
-
 export async function generateResearchPlan(
   input: {
     question: string;
@@ -92,7 +236,6 @@ export async function generateResearchPlan(
     deadline?: string;
   }
 ): Promise<ResearchPlan> {
-
   const response = await fetch(
     `${API_BASE}/api/research/plan`,
     {
@@ -114,18 +257,77 @@ export async function generateResearchPlan(
         deadline:
           input.deadline ?? null,
       }),
+
+      cache: "no-store",
     }
   );
 
   if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
     throw new Error(
-      `Research API failed: ${response.status}`
+      data?.detail ??
+        `Research plan failed: ${response.status}`
     );
   }
 
   return response.json();
 }
 
+/* =========================================================
+   RESEARCH DISCUSSION
+========================================================= */
+
+export type ResearchDiscussionMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ResearchDiscussionResponse = {
+  answer: string;
+  supporting_papers: ResearchPaper[];
+  suggested_questions: string[];
+};
+
+export async function discussResearch(
+  input: {
+    question: string;
+    research: ResearchExploration;
+    messages: ResearchDiscussionMessage[];
+    prompt: string;
+  }
+): Promise<ResearchDiscussionResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/research/discuss`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify(input),
+
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `Research discussion failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/* =========================================================
+   RESOURCE SEARCH
+========================================================= */
 
 export async function searchBooks(
   query: string
@@ -149,14 +351,10 @@ export async function searchBooks(
 
   const data = await response.json();
 
-  console.log("BOOK API RESPONSE:", data);
-
-  // Backend returns { results: [...] }
   if (Array.isArray(data?.results)) {
     return data.results;
   }
 
-  // Safety in case backend returns the array directly
   if (Array.isArray(data)) {
     return data;
   }
@@ -185,8 +383,6 @@ export async function searchDatasets(
   }
 
   const data = await response.json();
-
-  console.log("DATASET API RESPONSE:", data);
 
   if (Array.isArray(data?.results)) {
     return data.results;
@@ -221,8 +417,6 @@ export async function searchPapers(
 
   const data = await response.json();
 
-  console.log("PAPER API RESPONSE:", data);
-
   if (Array.isArray(data?.results)) {
     return data.results;
   }
@@ -233,6 +427,10 @@ export async function searchPapers(
 
   return [];
 }
+
+/* =========================================================
+   PROJECTS
+========================================================= */
 
 export type ProjectRepository = {
   name: string;
@@ -303,6 +501,83 @@ export async function inspectGitHubRepository(
   return response.json();
 }
 
+/* =========================================================
+   IMPLEMENTATION ADVISOR
+========================================================= */
+
+export type ImplementationRoadmapItem = {
+  title: string;
+  status: string;
+  technology: string;
+  recommendation?: string | null;
+  why: string;
+};
+
+export type ImplementationNextStep = {
+  title: string;
+  why_now: string;
+  recommended_tools: string[];
+  alternatives: string[];
+  prerequisites: string[];
+  implementation_steps: string[];
+  what_comes_after: string;
+};
+
+export type ProjectImplementationAdvisor = {
+  summary: string;
+
+  current_stage: string;
+
+  roadmap: ImplementationRoadmapItem[];
+
+  next_implementation: ImplementationNextStep;
+};
+
+export type ProjectImplementationResponse = {
+  repository: ProjectRepository;
+  advisor: ProjectImplementationAdvisor;
+};
+
+export async function analyzeProjectImplementation(
+  githubUrl: string,
+  question: string
+): Promise<ProjectImplementationResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/projects/implementation`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+
+      body: JSON.stringify({
+        github_url: githubUrl,
+        question,
+      }),
+
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+
+    throw new Error(
+      data?.detail ??
+        `Implementation advisor failed: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/* =========================================================
+   LEGACY REVIEW TYPE
+   Kept so existing frontend files do not break.
+========================================================= */
+
 export type ProjectReviewFinding = {
   severity: "critical" | "high" | "medium" | "low";
   title: string;
@@ -332,60 +607,17 @@ export async function reviewGitHubRepository(
     `${API_BASE}/api/projects/review`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
+
       body: JSON.stringify({
         github_url: githubUrl,
         question,
       }),
-      cache: "no-store",
-    }
-  );
 
-  if (!response.ok) {
-    const data = await response
-      .json()
-      .catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `GitHub review failed: ${response.status}`
-    );
-  }
-
-  return response.json();
-}
-
-export type ResearchDiscussionMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-export type ResearchDiscussionResponse = {
-  answer: string;
-  supporting_papers: ResearchPaper[];
-  suggested_questions: string[];
-};
-
-export async function discussResearch(
-  input: {
-    question: string;
-    research: ResearchPlan;
-    messages: ResearchDiscussionMessage[];
-    prompt: string;
-  }
-): Promise<ResearchDiscussionResponse> {
-  const response = await fetch(
-    `${API_BASE}/api/research/discuss`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(input),
       cache: "no-store",
     }
   );
@@ -395,7 +627,7 @@ export async function discussResearch(
 
     throw new Error(
       data?.detail ??
-        `Research discussion failed: ${response.status}`
+        `GitHub review failed: ${response.status}`
     );
   }
 
