@@ -60,6 +60,13 @@ export function registerUser(input: {
   });
 }
 
+export function googleLogin(credential: string): Promise<AuthUser> {
+  return authRequest<AuthUser>("/api/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+}
+
 export function loginUser(input: {
   email: string;
   password: string;
