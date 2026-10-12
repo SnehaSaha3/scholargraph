@@ -21,6 +21,7 @@ import Link from "next/link";
 import {
   FormEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -42,6 +43,9 @@ type ResearchSectionProps = {
   icon: typeof Search;
   items: string[];
 };
+
+const LAST_EXPLORATION_KEY = "scholargraph:last-exploration";
+const LAST_PLAN_KEY = "scholargraph:last-plan";
 
 function ResearchSection({
   title,
@@ -192,27 +196,37 @@ export default function ResearchPage() {
   const [discussionResponse, setDiscussionResponse] =
     useState<ResearchDiscussionResponse | null>(null);
 
-  const [loading, setLoading] =
-    useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [discussionLoading, setDiscussionLoading] =
     useState(false);
 
-  const [planLoading, setPlanLoading] =
-    useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
 
   const [error, setError] = useState("");
 
   const [showPlanAction, setShowPlanAction] =
     useState(false);
 
+  // Prevent an earlier request from replacing the result of a newer request.
+  const researchRequestId = useRef(0);
+  const planRequestId = useRef(0);
+  const discussionRequestId = useRef(0);
+
   useEffect(() => {
     function handleNewResearch() {
+      researchRequestId.current += 1;
+      planRequestId.current += 1;
+      discussionRequestId.current += 1;
+
       setQuestion("");
       setResearch(null);
       setMessages([]);
       setDiscussionInput("");
       setDiscussionResponse(null);
+      setLoading(false);
+      setDiscussionLoading(false);
+      setPlanLoading(false);
       setError("");
       setShowPlanAction(false);
     }
@@ -227,6 +241,10 @@ export default function ResearchPage() {
         "scholargraph:new-research",
         handleNewResearch
       );
+
+      researchRequestId.current += 1;
+      planRequestId.current += 1;
+      discussionRequestId.current += 1;
     };
   }, []);
 
@@ -242,32 +260,71 @@ export default function ResearchPage() {
       return;
     }
 
+    const requestId = ++researchRequestId.current;
+
+    // Invalidate pending plan/discussion requests for the old exploration.
+    planRequestId.current += 1;
+    discussionRequestId.current += 1;
+
     setLoading(true);
     setError("");
     setResearch(null);
     setMessages([]);
+    setDiscussionInput("");
     setDiscussionResponse(null);
+    setPlanLoading(false);
+    setDiscussionLoading(false);
+    setShowPlanAction(false);
 
     try {
-      const result =
-        await exploreResearch(trimmed);
+      const result = await exploreResearch(trimmed);
 
-      setResearch(result);
+      if (requestId !== researchRequestId.current) {
+        return;
+      }
+
+      // Use the exact question submitted, not an unrelated previous result.
+      if (
+        typeof result.question === "string" &&
+        result.question.trim() !== trimmed
+      ) {
+        console.warn(
+          "[Research Debug] API returned a different question.",
+          {
+            submitted: trimmed,
+            returned: result.question,
+          }
+        );
+      }
+
+      setResearch({
+        ...result,
+        question: trimmed,
+      });
 
       window.localStorage.setItem(
-        "scholargraph:last-exploration",
-        JSON.stringify(result)
+        LAST_EXPLORATION_KEY,
+        JSON.stringify({
+          ...result,
+          question: trimmed,
+        })
       );
 
       setShowPlanAction(true);
     } catch (err) {
+      if (requestId !== researchRequestId.current) {
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
           : "Unable to explore this research question."
       );
     } finally {
-      setLoading(false);
+      if (requestId === researchRequestId.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -276,7 +333,9 @@ export default function ResearchPage() {
   ) {
     event.preventDefault();
 
-    if (!research) {
+    const currentResearch = research;
+
+    if (!currentResearch) {
       return;
     }
 
@@ -286,13 +345,16 @@ export default function ResearchPage() {
       return;
     }
 
+    const requestId = ++discussionRequestId.current;
+    const existingMessages = [...messages];
+
     const userMessage: ResearchDiscussionMessage = {
       role: "user",
       content: prompt,
     };
 
     const nextMessages = [
-      ...messages,
+      ...existingMessages,
       userMessage,
     ];
 
@@ -302,19 +364,21 @@ export default function ResearchPage() {
     setError("");
 
     try {
-      const response =
-        await discussResearch({
-          question: research.question,
-          research,
-          messages,
-          prompt,
-        });
+      const response = await discussResearch({
+        question: currentResearch.question,
+        research: currentResearch,
+        messages: existingMessages,
+        prompt,
+      });
 
-      const assistantMessage: ResearchDiscussionMessage =
-        {
-          role: "assistant",
-          content: response.answer,
-        };
+      if (requestId !== discussionRequestId.current) {
+        return;
+      }
+
+      const assistantMessage: ResearchDiscussionMessage = {
+        role: "assistant",
+        content: response.answer,
+      };
 
       setMessages([
         ...nextMessages,
@@ -323,54 +387,114 @@ export default function ResearchPage() {
 
       setDiscussionResponse(response);
     } catch (err) {
+      if (requestId !== discussionRequestId.current) {
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
           : "Unable to continue the research discussion."
       );
     } finally {
-      setDiscussionLoading(false);
+      if (requestId === discussionRequestId.current) {
+        setDiscussionLoading(false);
+      }
     }
   }
 
   async function handleBuildPlan() {
-    if (!research) {
+    const currentResearch = research;
+
+    if (!currentResearch || planLoading) {
       return;
     }
+
+    const expectedQuestion = currentResearch.question.trim();
+    const requestId = ++planRequestId.current;
 
     setPlanLoading(true);
     setError("");
 
     try {
       const plan = await generateResearchPlan({
-        question: research.question,
+        question: expectedQuestion,
         experience_level: "beginner",
         hours_per_week: 10,
       });
+        console.info("[Plan Debug] Sending question:", expectedQuestion);
+        console.info("[Plan Debug] API returned:", {
+           question: plan.question,
+           firstTask: plan.daily_tasks?.[0]?.title,
+           firstMilestone: plan.milestones?.[0]?.title,
+      });
 
+
+      // Ignore a response if the user started another research flow meanwhile.
+      if (requestId !== planRequestId.current) {
+        return;
+      }
+
+      if (
+        typeof plan.question !== "string" ||
+        plan.question.trim() !== expectedQuestion
+      ) {
+        console.error("[Planner Debug] Question mismatch:", {
+          expected: expectedQuestion,
+          returned: plan.question,
+        });
+
+        setError(
+          "The generated plan does not match your current research question. Please try building it again."
+        );
+
+        return;
+      }
+
+      // Save only after confirming that the returned plan belongs to this question.
       window.localStorage.setItem(
-        "scholargraph:last-plan",
+        LAST_PLAN_KEY,
         JSON.stringify(plan)
       );
 
-      window.location.href = "/planner";
+      console.info("[Planner Debug] Saved plan:", {
+        question: plan.question,
+        firstTask: plan.daily_tasks?.[0]?.title,
+        firstMilestone: plan.milestones?.[0]?.title,
+      });
+
+      // Navigate only after the new plan has been saved.
+      window.location.assign("/planner");
     } catch (err) {
+      if (requestId !== planRequestId.current) {
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
           : "Unable to build the research plan."
       );
     } finally {
-      setPlanLoading(false);
+      if (requestId === planRequestId.current) {
+        setPlanLoading(false);
+      }
     }
   }
 
   function resetResearch() {
+    researchRequestId.current += 1;
+    planRequestId.current += 1;
+    discussionRequestId.current += 1;
+
     setQuestion("");
     setResearch(null);
     setMessages([]);
     setDiscussionInput("");
     setDiscussionResponse(null);
+    setLoading(false);
+    setDiscussionLoading(false);
+    setPlanLoading(false);
     setError("");
     setShowPlanAction(false);
   }
@@ -429,10 +553,7 @@ export default function ResearchPage() {
 
                   <button
                     type="submit"
-                    disabled={
-                      loading ||
-                      !question.trim()
-                    }
+                    disabled={loading || !question.trim()}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b6a9ff] px-5 py-2.5 text-sm font-medium text-[#0b0b0f] transition hover:bg-[#c4baff] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {loading ? (
@@ -510,7 +631,6 @@ export default function ResearchPage() {
   return (
     <AppShell>
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-10 lg:pt-10">
-        {/* Research header */}
         <header className="border-b border-white/[0.07] pb-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
@@ -552,7 +672,6 @@ export default function ResearchPage() {
           </div>
         </header>
 
-        {/* Understanding */}
         <section className="mt-8 rounded-2xl border border-white/[0.07] bg-[#0d0f14] p-6 sm:p-7">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#b6a9ff]/10">
@@ -578,7 +697,6 @@ export default function ResearchPage() {
           </p>
         </section>
 
-        {/* Exploration map */}
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           <ResearchSection
             title="Research scope"
@@ -617,7 +735,6 @@ export default function ResearchPage() {
           />
         </div>
 
-        {/* Evidence */}
         <section className="mt-12">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -668,7 +785,6 @@ export default function ResearchPage() {
           </div>
         </section>
 
-        {/* Recent papers */}
         {research.recent_papers.length > 0 && (
           <section className="mt-10">
             <div className="mb-4 flex items-center justify-between">
@@ -705,7 +821,6 @@ export default function ResearchPage() {
           </section>
         )}
 
-        {/* Discussion */}
         <section className="mt-12">
           <div className="flex items-end justify-between">
             <div>
@@ -757,9 +872,7 @@ export default function ResearchPage() {
               <textarea
                 value={discussionInput}
                 onChange={(event) =>
-                  setDiscussionInput(
-                    event.target.value
-                  )
+                  setDiscussionInput(event.target.value)
                 }
                 rows={3}
                 placeholder="Ask a follow-up question..."
@@ -806,9 +919,7 @@ export default function ResearchPage() {
                         key={suggestion}
                         type="button"
                         onClick={() =>
-                          setDiscussionInput(
-                            suggestion
-                          )
+                          setDiscussionInput(suggestion)
                         }
                         className="rounded-full border border-white/[0.07] px-3 py-2 text-left text-xs text-[#858994] transition hover:border-white/[0.14] hover:text-white"
                       >
@@ -822,7 +933,6 @@ export default function ResearchPage() {
           </div>
         </section>
 
-        {/* Build plan */}
         <section className="mt-12">
           <div className="rounded-2xl border border-[#b6a9ff]/15 bg-[#b6a9ff]/[0.035] p-6 sm:p-7">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">

@@ -31,53 +31,73 @@ export default function PlannerPage() {
   const [completed, setCompleted] =
     useState<string[]>([]);
 
-  useEffect(() => {
-    const savedPlan =
-      localStorage.getItem(
-        "scholargraph:last-plan"
+  
+useEffect(() => {
+  const savedPlan = localStorage.getItem(
+    "scholargraph:last-plan"
+  );
+
+  const savedProgress = localStorage.getItem(
+    PROGRESS_STORAGE_KEY
+  );
+
+  if (savedPlan) {
+    try {
+      const parsedPlan = JSON.parse(savedPlan) as ResearchPlan;
+
+      if (
+        typeof parsedPlan.question === "string" &&
+        Array.isArray(parsedPlan.daily_tasks) &&
+        Array.isArray(parsedPlan.milestones)
+      ) {
+        console.info("[Planner Debug] Restored plan:", {
+          question: parsedPlan.question,
+          firstTask: parsedPlan.daily_tasks[0]?.title,
+          firstMilestone: parsedPlan.milestones[0]?.title,
+        });
+
+        setPlan(parsedPlan);
+      } else {
+        console.error(
+          "[Planner Debug] Saved plan has an invalid structure."
+        );
+        localStorage.removeItem("scholargraph:last-plan");
+        setPlan(null);
+      }
+    } catch (error) {
+      console.error(
+        "[Planner Debug] Could not restore research plan:",
+        error
       );
 
-    const savedProgress =
-      localStorage.getItem(
-        PROGRESS_STORAGE_KEY
+      localStorage.removeItem("scholargraph:last-plan");
+      setPlan(null);
+    }
+  } else {
+    setPlan(null);
+  }
+
+  if (savedProgress) {
+    try {
+      const parsedProgress = JSON.parse(savedProgress);
+
+      if (Array.isArray(parsedProgress)) {
+        setCompleted(
+          parsedProgress.filter(
+            (item): item is string =>
+              typeof item === "string"
+          )
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Could not restore planner progress",
+        error
       );
-
-    if (savedPlan) {
-      try {
-        setPlan(
-          JSON.parse(savedPlan)
-        );
-      } catch (error) {
-        console.error(
-          "Could not restore research plan",
-          error
-        );
-      }
     }
+  }
+}, []);
 
-    if (savedProgress) {
-      try {
-        const parsedProgress =
-          JSON.parse(savedProgress);
-
-        if (
-          Array.isArray(parsedProgress)
-        ) {
-          setCompleted(
-            parsedProgress.filter(
-              (item): item is string =>
-                typeof item === "string"
-            )
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Could not restore planner progress",
-          error
-        );
-      }
-    }
-  }, []);
 
   function getTaskId(
     task: ResearchDailyTask

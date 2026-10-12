@@ -22,6 +22,9 @@ def _resources(items: list[dict]) -> list[ResearchResource]:
 
 def explore_research(request: ResearchRequest) -> ResearchExploration:
     graph = build_research_graph()
+
+    conversation_id: str | None = None
+
     result = graph.invoke({
         "question": request.question,
         "experience_level": request.experience_level,
@@ -30,6 +33,9 @@ def explore_research(request: ResearchRequest) -> ResearchExploration:
     })
 
     papers = result.get("foundational_papers", []) + result.get("recent_papers", [])
+
+    conversation_id: str | None = None
+
     return ResearchExploration(
         question=request.question,
         understanding=result.get("understanding", ""),
@@ -45,7 +51,11 @@ def explore_research(request: ResearchRequest) -> ResearchExploration:
         recent_papers=[ResearchPaper.model_validate(x) for x in result.get("recent_papers", [])],
         datasets=_resources(result.get("datasets", [])),
         books=_resources(result.get("books", [])),
+        
     )
+
+    conversation_id: str | None = None
+
 
 
 def _clean_json(content):
@@ -61,6 +71,9 @@ def discuss_research(request: ResearchDiscussionRequest) -> ResearchDiscussionRe
     llm = get_llm()
     research = request.research
     papers = research.foundational_papers + research.recent_papers
+
+    conversation_id: str | None = None
+
     evidence = {
         "understanding": research.understanding,
         "scope": research.research_scope,
