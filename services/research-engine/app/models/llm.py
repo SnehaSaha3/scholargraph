@@ -8,7 +8,8 @@ from langchain_groq import ChatGroq
 load_dotenv()
 
 
-def get_llm() -> ChatGroq:
+
+def get_llm(max_tokens: int = 1400) -> ChatGroq:
     """
     Return the primary Groq LLM.
     """
@@ -26,7 +27,7 @@ def get_llm() -> ChatGroq:
         api_key=api_key,
         model=model,
         temperature=0,
-        max_tokens=1400,
+        max_tokens=max_tokens,
     )
 
 
