@@ -1,9 +1,53 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_RESEARCH_API_URL ??
-  "http://localhost:8000";
 
 
+const API_BASE = (
+  process.env.NEXT_PUBLIC_RESEARCH_API_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
 
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    console.error("[researchApi] Network request failed", {
+      url: `${API_BASE}${path}`,
+      error,
+    });
+
+    throw new Error(
+      `Cannot reach the research API at ${API_BASE}. Check the backend URL, server status, and CORS configuration.`
+    );
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      data?.detail ??
+        data?.message ??
+        `Request failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  return data as T;
+}
 
 /* =========================================================
    AUTHENTICATION
@@ -17,51 +61,19 @@ export type AuthUser = {
   email_verified: boolean;
 };
 
-async function authRequest<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: "include",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      ...(options.body
-        ? { "Content-Type": "application/json" }
-        : {}),
-      ...options.headers,
-    },
-  });
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(
-      data?.detail ?? `Authentication failed: ${response.status}`
-    );
-  }
-
-  return data as T;
-}
-
 export function registerUser(input: {
   email: string;
   password: string;
   display_name: string;
 }): Promise<AuthUser> {
-  return authRequest<AuthUser>("/api/auth/register", {
+  return apiRequest("/api/auth/register", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export function googleLogin(credential: string): Promise<AuthUser> {
-  return authRequest<AuthUser>("/api/auth/google", {
+  return apiRequest("/api/auth/google", {
     method: "POST",
     body: JSON.stringify({ credential }),
   });
@@ -71,47 +83,103 @@ export function loginUser(input: {
   email: string;
   password: string;
 }): Promise<AuthUser> {
-  return authRequest<AuthUser>("/api/auth/login", {
+  return apiRequest("/api/auth/login", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export function getCurrentUser(): Promise<AuthUser> {
-  return authRequest<AuthUser>("/api/auth/me");
+  return apiRequest("/api/auth/me");
 }
 
 export function logoutUser(): Promise<void> {
-  return authRequest<void>("/api/auth/logout", {
-    method: "POST",
-  });
+  return apiRequest("/api/auth/logout", { method: "POST" });
 }
 
 /* =========================================================
-   RESEARCH
+   PERSISTENT RESEARCH HISTORY
+========================================================= */
+
+export type ResearchConversationSummary = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+};
+
+export type ResearchStoredMessage = {
+  id: string;
+  role: "user" | "assistant";
+  kind: "explore" | "discuss" | "plan" | string;
+  content: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type ResearchConversationDetail = ResearchConversationSummary & {
+  messages: ResearchStoredMessage[];
+};
+
+export async function listResearchHistory(
+  search?: string
+): Promise<ResearchConversationSummary[]> {
+  const query = search?.trim()
+    ? `?search=${encodeURIComponent(search.trim())}`
+    : "";
+
+  return apiRequest(`/api/research/history${query}`);
+}
+
+export function getResearchConversation(
+  conversationId: string
+): Promise<ResearchConversationDetail> {
+  return apiRequest(
+    `/api/research/history/${encodeURIComponent(conversationId)}`
+  );
+}
+
+export function renameResearchConversation(
+  conversationId: string,
+  title: string
+): Promise<ResearchConversationSummary> {
+  return apiRequest(
+    `/api/research/history/${encodeURIComponent(conversationId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }
+  );
+}
+
+export function deleteResearchConversation(
+  conversationId: string
+): Promise<void> {
+  return apiRequest(
+    `/api/research/history/${encodeURIComponent(conversationId)}`,
+    { method: "DELETE" }
+  );
+}
+
+/* =========================================================
+   RESEARCH TYPES
 ========================================================= */
 
 export type ResearchResource = {
   title: string;
   resource_type: string;
   description: string;
-
   authors?: string[];
   year?: number;
-
   url?: string | null;
   cover_url?: string | null;
-
   subjects?: string[];
-
   access_type?: string | null;
   action_label?: string | null;
-
   read_url?: string | null;
   borrow_url?: string | null;
-
   source?: string | null;
-
   relevance_score?: number | null;
 };
 
@@ -151,58 +219,34 @@ export type ResearchDailyTask = {
 ========================================================= */
 
 export type ResearchExploration = {
+  conversation_id?: string | null;
   question: string;
-
   understanding: string;
-
   research_scope: string[];
   key_concepts: string[];
   established_approaches: string[];
   challenges: string[];
   research_directions: string[];
   research_gaps: string[];
-
   topics: string[];
   prerequisites: string[];
-
   foundational_papers: ResearchPaper[];
   recent_papers: ResearchPaper[];
-
   datasets: ResearchResource[];
   books: ResearchResource[];
 };
 
-export async function exploreResearch(
-  question: string
+export function exploreResearch(
+  question: string,
+  conversationId?: string | null
 ): Promise<ResearchExploration> {
-  const response = await fetch(
-    `${API_BASE}/api/research/explore`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-
-      body: JSON.stringify({
-        question,
-      }),
-
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `Research exploration failed: ${response.status}`
-    );
-  }
-
-  return response.json();
+  return apiRequest("/api/research/explore", {
+    method: "POST",
+    body: JSON.stringify({
+      question,
+      conversation_id: conversationId ?? null,
+    }),
+  });
 }
 
 /* =========================================================
@@ -210,75 +254,43 @@ export async function exploreResearch(
 ========================================================= */
 
 export type ResearchPlan = {
+  conversation_id?: string | null;
   question: string;
   understanding: string;
-
   research_scope: string[];
   key_concepts: string[];
   established_approaches: string[];
   challenges: string[];
   research_directions: string[];
   research_gaps: string[];
-
   topics: string[];
   prerequisites: string[];
-
   learning_path: LearningTopic[];
-
   foundational_papers: ResearchPaper[];
   recent_papers: ResearchPaper[];
-
   datasets: ResearchResource[];
   books: ResearchResource[];
-
   milestones: ResearchMilestone[];
   daily_tasks: ResearchDailyTask[];
 };
 
-export async function generateResearchPlan(
-  input: {
-    question: string;
-    experience_level?: string;
-    hours_per_week?: number;
-    deadline?: string;
-  }
-): Promise<ResearchPlan> {
-  const response = await fetch(
-    `${API_BASE}/api/research/plan`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-      },
-
-      body: JSON.stringify({
-        question: input.question,
-
-        experience_level:
-          input.experience_level ?? "beginner",
-
-        hours_per_week:
-          input.hours_per_week ?? 10,
-
-        deadline:
-          input.deadline ?? null,
-      }),
-
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `Research plan failed: ${response.status}`
-    );
-  }
-
-  return response.json();
+export function generateResearchPlan(input: {
+  question: string;
+  experience_level?: string;
+  hours_per_week?: number;
+  deadline?: string;
+  conversation_id?: string | null;
+}): Promise<ResearchPlan> {
+  return apiRequest("/api/research/plan", {
+    method: "POST",
+    body: JSON.stringify({
+      question: input.question,
+      experience_level: input.experience_level ?? "beginner",
+      hours_per_week: input.hours_per_week ?? 10,
+      deadline: input.deadline ?? null,
+      conversation_id: input.conversation_id ?? null,
+    }),
+  });
 }
 
 /* =========================================================
@@ -291,148 +303,70 @@ export type ResearchDiscussionMessage = {
 };
 
 export type ResearchDiscussionResponse = {
+  conversation_id?: string | null;
   answer: string;
   supporting_papers: ResearchPaper[];
   suggested_questions: string[];
 };
 
-export async function discussResearch(
-  input: {
-    question: string;
-    research: ResearchExploration;
-    messages: ResearchDiscussionMessage[];
-    prompt: string;
-  }
-): Promise<ResearchDiscussionResponse> {
-  const response = await fetch(
-    `${API_BASE}/api/research/discuss`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-
-      body: JSON.stringify(input),
-
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `Research discussion failed: ${response.status}`
-    );
-  }
-
-  return response.json();
+export function discussResearch(input: {
+  question: string;
+  research: ResearchExploration;
+  messages: ResearchDiscussionMessage[];
+  prompt: string;
+  conversation_id?: string | null;
+}): Promise<ResearchDiscussionResponse> {
+  return apiRequest("/api/research/discuss", {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      conversation_id:
+        input.conversation_id ??
+        input.research.conversation_id ??
+        null,
+    }),
+  });
 }
 
 /* =========================================================
    RESOURCE SEARCH
 ========================================================= */
 
-export async function searchBooks(
-  query: string
-): Promise<ResearchResource[]> {
-  const response = await fetch(
-    `${API_BASE}/api/resources/books?query=${encodeURIComponent(query)}`,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
-  );
+async function resourceSearch<T>(
+  path: string
+): Promise<T[]> {
+  const data = await apiRequest<unknown>(path);
 
-  if (!response.ok) {
-    throw new Error(
-      `Book search failed: ${response.status}`
-    );
-  }
+  if (Array.isArray(data)) return data as T[];
 
-  const data = await response.json();
-
-  if (Array.isArray(data?.results)) {
-    return data.results;
-  }
-
-  if (Array.isArray(data)) {
-    return data;
+  if (
+    data &&
+    typeof data === "object" &&
+    "results" in data &&
+    Array.isArray((data as { results: unknown }).results)
+  ) {
+    return (data as { results: T[] }).results;
   }
 
   return [];
 }
 
-export async function searchDatasets(
-  query: string
-): Promise<ResearchResource[]> {
-  const response = await fetch(
-    `${API_BASE}/api/resources/datasets?query=${encodeURIComponent(query)}`,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
+export function searchBooks(query: string): Promise<ResearchResource[]> {
+  return resourceSearch(
+    `/api/resources/books?query=${encodeURIComponent(query)}`
   );
-
-  if (!response.ok) {
-    throw new Error(
-      `Dataset search failed: ${response.status}`
-    );
-  }
-
-  const data = await response.json();
-
-  if (Array.isArray(data?.results)) {
-    return data.results;
-  }
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  return [];
 }
 
-export async function searchPapers(
-  query: string
-): Promise<ResearchPaper[]> {
-  const response = await fetch(
-    `${API_BASE}/api/resources/papers?query=${encodeURIComponent(query)}`,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
+export function searchDatasets(query: string): Promise<ResearchResource[]> {
+  return resourceSearch(
+    `/api/resources/datasets?query=${encodeURIComponent(query)}`
   );
+}
 
-  if (!response.ok) {
-    throw new Error(
-      `Paper search failed: ${response.status}`
-    );
-  }
-
-  const data = await response.json();
-
-  if (Array.isArray(data?.results)) {
-    return data.results;
-  }
-
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  return [];
+export function searchPapers(query: string): Promise<ResearchPaper[]> {
+  return resourceSearch(
+    `/api/resources/papers?query=${encodeURIComponent(query)}`
+  );
 }
 
 /* =========================================================
@@ -466,46 +400,20 @@ export type ProjectRepositorySignals = {
 
 export type ProjectRepositoryInspection = {
   repository: ProjectRepository;
-
   signals: ProjectRepositorySignals;
-
   tree_summary: {
     total_files: number;
     relevant_files: string[];
   };
 };
 
-export async function inspectGitHubRepository(
+export function inspectGitHubRepository(
   githubUrl: string
 ): Promise<ProjectRepositoryInspection> {
-  const response = await fetch(
-    `${API_BASE}/api/projects/repository`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-
-      body: JSON.stringify({
-        github_url: githubUrl,
-      }),
-
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `GitHub inspection failed: ${response.status}`
-    );
-  }
-
-  return response.json();
+  return apiRequest("/api/projects/repository", {
+    method: "POST",
+    body: JSON.stringify({ github_url: githubUrl }),
+  });
 }
 
 /* =========================================================
@@ -532,11 +440,8 @@ export type ImplementationNextStep = {
 
 export type ProjectImplementationAdvisor = {
   summary: string;
-
   current_stage: string;
-
   roadmap: ImplementationRoadmapItem[];
-
   next_implementation: ImplementationNextStep;
 };
 
@@ -545,44 +450,18 @@ export type ProjectImplementationResponse = {
   advisor: ProjectImplementationAdvisor;
 };
 
-export async function analyzeProjectImplementation(
+export function analyzeProjectImplementation(
   githubUrl: string,
   question: string
 ): Promise<ProjectImplementationResponse> {
-  const response = await fetch(
-    `${API_BASE}/api/projects/implementation`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-
-      body: JSON.stringify({
-        github_url: githubUrl,
-        question,
-      }),
-
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
-
-    throw new Error(
-      data?.detail ??
-        `Implementation advisor failed: ${response.status}`
-    );
-  }
-
-  return response.json();
+  return apiRequest("/api/projects/implementation", {
+    method: "POST",
+    body: JSON.stringify({ github_url: githubUrl, question }),
+  });
 }
 
 /* =========================================================
    LEGACY REVIEW TYPE
-   Kept so existing frontend files do not break.
 ========================================================= */
 
 export type ProjectReviewFinding = {
@@ -606,37 +485,92 @@ export type ProjectReview = {
   };
 };
 
-export async function reviewGitHubRepository(
+export function reviewGitHubRepository(
   githubUrl: string,
   question: string
 ): Promise<ProjectReview> {
-  const response = await fetch(
-    `${API_BASE}/api/projects/review`,
+  return apiRequest("/api/projects/review", {
+    method: "POST",
+    body: JSON.stringify({ github_url: githubUrl, question }),
+  });
+}
+
+
+/* =========================================================
+   PERSISTENT PLANNER PROGRESS
+========================================================= */
+
+export type ResearchPlannerProgress = {
+  conversation_id: string;
+  completed_task_ids: string[];
+  updated_at?: string | null;
+};
+
+export function getResearchPlannerProgress(
+  conversationId: string
+): Promise<ResearchPlannerProgress> {
+  return apiRequest(
+    `/api/research/history/${encodeURIComponent(
+      conversationId
+    )}/planner-progress`
+  );
+}
+
+export function saveResearchPlannerProgress(
+  conversationId: string,
+  completedTaskIds: string[]
+): Promise<ResearchPlannerProgress> {
+  return apiRequest(
+    `/api/research/history/${encodeURIComponent(
+      conversationId
+    )}/planner-progress`,
     {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-
+      method: "PUT",
       body: JSON.stringify({
-        github_url: githubUrl,
-        question,
+        completed_task_ids: completedTaskIds,
       }),
-
-      cache: "no-store",
     }
   );
+}
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => null);
+export type SavedProject = {
+  id: string;
+  github_url: string;
+  repository_name: string;
+  research_question: string;
+  result: ProjectImplementationResponse;
+  created_at: string;
+  updated_at: string;
+};
 
-    throw new Error(
-      data?.detail ??
-        `GitHub review failed: ${response.status}`
-    );
-  }
+export function listSavedProjects(): Promise<SavedProject[]> {
+  return apiRequest("/api/saved-projects");
+}
 
-  return response.json();
+export function getSavedProject(
+  projectId: string
+): Promise<SavedProject> {
+  return apiRequest(
+    `/api/saved-projects/${encodeURIComponent(projectId)}`
+  );
+}
+
+export function createSavedProject(input: {
+  github_url: string;
+  research_question: string;
+  result: ProjectImplementationResponse;
+}): Promise<SavedProject> {
+  return apiRequest("/api/saved-projects", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteSavedProject(
+  projectId: string
+): Promise<void> {
+  return apiRequest(
+    `/api/saved-projects/${encodeURIComponent(projectId)}`,
+    { method: "DELETE" }
+  );
 }

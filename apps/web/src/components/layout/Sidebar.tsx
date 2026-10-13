@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -17,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 
+import ConversationHistory from "./ConversationHistory"
+
 type SidebarProps = {
   collapsed: boolean;
   mobileOpen: boolean;
@@ -25,36 +28,12 @@ type SidebarProps = {
 };
 
 const navigation = [
-  {
-    label: "Research",
-    href: "/",
-    icon: Search,
-  },
-  {
-    label: "Library",
-    href: "/library",
-    icon: Library,
-  },
-  {
-    label: "Papers",
-    href: "/papers",
-    icon: FileText,
-  },
-  {
-    label: "Datasets",
-    href: "/datasets",
-    icon: Database,
-  },
-  {
-    label: "Projects",
-    href: "/projects",
-    icon: FolderKanban,
-  },
-  {
-    label: "Planner",
-    href: "/planner",
-    icon: CalendarDays,
-  },
+  { label: "Research", href: "/", icon: Search },
+  { label: "Library", href: "/library", icon: Library },
+  { label: "Papers", href: "/papers", icon: FileText },
+  { label: "Datasets", href: "/datasets", icon: Database },
+  { label: "Projects", href: "/projects", icon: FolderKanban },
+  { label: "Planner", href: "/planner", icon: CalendarDays },
 ];
 
 export default function Sidebar({
@@ -69,21 +48,14 @@ export default function Sidebar({
     <aside
       className={[
         "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/[0.07] bg-[#0a0b0f]/95 backdrop-blur-xl transition-all duration-300",
-        collapsed
-          ? "w-[76px]"
-          : "w-[260px]",
-        mobileOpen
-          ? "translate-x-0"
-          : "-translate-x-full lg:translate-x-0",
+        collapsed ? "w-[76px]" : "w-[260px]",
+        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
       ].join(" ")}
     >
-      {/* BRAND */}
       <div
         className={[
           "flex h-[72px] shrink-0 items-center border-b border-white/[0.07]",
-          collapsed
-            ? "justify-center px-3"
-            : "justify-between px-5",
+          collapsed ? "justify-center px-3" : "justify-between px-5",
         ].join(" ")}
       >
         <Link
@@ -92,10 +64,7 @@ export default function Sidebar({
           className="flex items-center gap-3"
         >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/[0.08]">
-            <Sparkles
-              size={18}
-              className="text-violet-200"
-            />
+            <Sparkles size={18} className="text-violet-200" />
           </div>
 
           {!collapsed && (
@@ -103,7 +72,6 @@ export default function Sidebar({
               <p className="text-[15px] font-semibold tracking-tight text-white">
                 ScholarGraph
               </p>
-
               <p className="mt-0.5 text-[10px] text-white/30">
                 Research workspace
               </p>
@@ -115,15 +83,14 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onMobileClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 hover:bg-white/[0.05] hover:text-white lg:hidden"
             aria-label="Close navigation"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 hover:bg-white/[0.05] hover:text-white lg:hidden"
           >
             <X size={17} />
           </button>
         )}
       </div>
 
-      {/* NAVIGATION */}
       <nav className="flex-1 overflow-y-auto px-3 py-5">
         <p
           className={[
@@ -137,30 +104,20 @@ export default function Sidebar({
         <div className="space-y-1">
           {navigation.map((item) => {
             const Icon = item.icon;
-
             const isActive =
               item.href === "/"
                 ? pathname === "/"
-                : pathname === item.href ||
-                  pathname.startsWith(
-                    `${item.href}/`
-                  );
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={onMobileClose}
-                title={
-                  collapsed
-                    ? item.label
-                    : undefined
-                }
+                title={collapsed ? item.label : undefined}
                 className={[
                   "group relative flex min-h-11 items-center rounded-xl transition",
-                  collapsed
-                    ? "justify-center px-2"
-                    : "gap-3 px-3",
+                  collapsed ? "justify-center px-2" : "gap-3 px-3",
                   isActive
                     ? "bg-white/[0.075] text-white"
                     : "text-white/45 hover:bg-white/[0.04] hover:text-white/80",
@@ -169,7 +126,6 @@ export default function Sidebar({
                 {isActive && (
                   <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-violet-300" />
                 )}
-
                 <Icon
                   size={18}
                   className={
@@ -178,11 +134,8 @@ export default function Sidebar({
                       : "text-white/35 group-hover:text-white/60"
                   }
                 />
-
                 {!collapsed && (
-                  <span className="text-[13px] font-medium">
-                    {item.label}
-                  </span>
+                  <span className="text-[13px] font-medium">{item.label}</span>
                 )}
               </Link>
             );
@@ -194,7 +147,6 @@ export default function Sidebar({
             <p className="mb-3 px-3 text-[10px] font-medium uppercase tracking-[0.16em] text-white/25">
               Discover
             </p>
-
             <Link
               href="/pulse"
               onClick={onMobileClose}
@@ -204,40 +156,31 @@ export default function Sidebar({
                 size={18}
                 className="text-white/30 group-hover:text-white/60"
               />
-
-              <span className="text-[13px] font-medium">
-                Research Pulse
-              </span>
+              <span className="text-[13px] font-medium">Research Pulse</span>
             </Link>
           </div>
         )}
+
+        <ConversationHistory
+          collapsed={collapsed}
+          onMobileClose={onMobileClose}
+        />
       </nav>
 
-      {/* FOOTER */}
       <div className="shrink-0 border-t border-white/[0.07] p-3">
         <Link
           href="/my-research"
           onClick={onMobileClose}
-          title={
-            collapsed
-              ? "My Research"
-              : undefined
-          }
+          title={collapsed ? "My Research" : undefined}
           className={[
             "flex min-h-11 items-center rounded-xl text-white/40 transition hover:bg-white/[0.04] hover:text-white/80",
-            collapsed
-              ? "justify-center"
-              : "gap-3 px-3",
+            collapsed ? "justify-center" : "gap-3 px-3",
           ].join(" ")}
         >
           <Bookmark size={18} />
-
           {!collapsed && (
             <div>
-              <p className="text-[13px] font-medium">
-                My Research
-              </p>
-
+              <p className="text-[13px] font-medium">My Research</p>
               <p className="mt-0.5 text-[10px] text-white/25">
                 Saved work & resources
               </p>
@@ -248,23 +191,13 @@ export default function Sidebar({
         <button
           type="button"
           onClick={onToggle}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={[
             "mt-2 flex h-9 w-full items-center rounded-lg text-white/25 transition hover:bg-white/[0.04] hover:text-white/60",
-            collapsed
-              ? "justify-center"
-              : "justify-end px-2",
+            collapsed ? "justify-center" : "justify-end px-2",
           ].join(" ")}
-          aria-label={
-            collapsed
-              ? "Expand sidebar"
-              : "Collapse sidebar"
-          }
         >
-          {collapsed ? (
-            <ChevronRight size={16} />
-          ) : (
-            <ChevronLeft size={16} />
-          )}
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
     </aside>

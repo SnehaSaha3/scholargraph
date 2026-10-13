@@ -6,6 +6,8 @@ from app.api.routes.research import router as research_router
 from app.api.routes.resources import router as resources_router
 from app.api.projects import router as projects_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.saved_projects import router as saved_projects_router
+
 app = FastAPI(
     title="ScholarGraph Research Engine",
     version="0.1.0",
@@ -43,6 +45,8 @@ app.include_router(
 )
 
 app.include_router(projects_router)
+
+app.include_router(saved_projects_router)
 
 @app.get("/")
 def root():

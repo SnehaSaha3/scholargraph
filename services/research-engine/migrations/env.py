@@ -2,6 +2,8 @@ from logging.config import fileConfig
 from app.db.database import Base
 from app.db import models
 from app.core.config import get_database_url
+from app.db.database import Base
+import app.db.models  # Register models for Alembic autogeneration
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool

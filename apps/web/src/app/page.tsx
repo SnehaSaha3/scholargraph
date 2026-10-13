@@ -33,9 +33,9 @@ import {
   generateResearchPlan,
   ResearchDiscussionMessage,
   ResearchDiscussionResponse,
+  getResearchConversation,
   ResearchExploration,
   ResearchPaper,
-  ResearchPlan,
 } from "@/lib/researchApi";
 
 type ResearchSectionProps = {
@@ -186,6 +186,9 @@ export default function ResearchPage() {
   const [research, setResearch] =
     useState<ResearchExploration | null>(null);
 
+  const [conversationId, setConversationId] =
+    useState<string | null>(null);
+
   const [messages, setMessages] = useState<
     ResearchDiscussionMessage[]
   >([]);
@@ -213,7 +216,157 @@ export default function ResearchPage() {
   const planRequestId = useRef(0);
   const discussionRequestId = useRef(0);
 
+ 
+  
   useEffect(() => {
+    let disposed = false;
+
+    async function handleOpenConversation(event: Event) {
+      const customEvent = event as CustomEvent<{
+        conversationId?: string;
+      }>;
+
+      const id = customEvent.detail?.conversationId;
+      if (!id) return;
+
+      const requestId = ++researchRequestId.current;
+      planRequestId.current += 1;
+      discussionRequestId.current += 1;
+
+      setLoading(true);
+      setError("");
+      setResearch(null);
+      setConversationId(id);
+      setMessages([]);
+      setDiscussionInput("");
+      setDiscussionResponse(null);
+      setShowPlanAction(false);
+
+      try {
+        const conversation = await getResearchConversation(id);
+
+        if (disposed || requestId !== researchRequestId.current) return;
+
+        const storedMessages = conversation.messages ?? [];
+
+        const explorationMessage = storedMessages.find(
+          (message) =>
+            message.kind === "explore" &&
+            message.role === "assistant"
+        );
+
+        let candidate: unknown = explorationMessage?.payload;
+
+        if (
+          candidate &&
+          typeof candidate === "object" &&
+          "research" in candidate
+        ) {
+          candidate = (candidate as { research: unknown }).research;
+        } else if (
+          candidate &&
+          typeof candidate === "object" &&
+          "result" in candidate
+        ) {
+          candidate = (candidate as { result: unknown }).result;
+        }
+
+        if (
+          !candidate ||
+          typeof candidate !== "object" ||
+          !("question" in candidate)
+        ) {
+          throw new Error(
+            "This conversation does not contain a restorable research exploration."
+          );
+        }
+
+        const firstUserMessage = storedMessages.find(
+          (message) =>
+            message.kind === "explore" &&
+            message.role === "user"
+        );
+
+        const candidateQuestion = (
+          candidate as { question?: unknown }
+        ).question;
+
+        const restoredQuestion =
+          typeof candidateQuestion === "string"
+            ? candidateQuestion
+            : firstUserMessage?.content ?? conversation.title;
+
+        const restoredResearch = {
+          ...(candidate as Record<string, unknown>),
+          question: restoredQuestion,
+          conversation_id: conversation.id,
+        } as ResearchExploration;
+
+        const restoredMessages: ResearchDiscussionMessage[] =
+          storedMessages
+            .filter((message) => message.kind === "discuss")
+            .map((message) => ({
+              role: message.role,
+              content: message.content,
+            }));
+
+        const lastDiscussionResponse = [...storedMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message.kind === "discuss" &&
+              message.role === "assistant"
+          );
+
+        const responsePayload = lastDiscussionResponse?.payload;
+
+        const restoredDiscussionResponse =
+          responsePayload &&
+          typeof responsePayload.answer === "string"
+            ? (responsePayload as unknown as ResearchDiscussionResponse)
+            : null;
+
+        const hasSavedPlan = storedMessages.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.kind === "plan" &&
+            message.payload !== null &&
+            typeof message.payload === "object"
+        );
+
+        setQuestion(restoredQuestion);
+        setResearch(restoredResearch);
+        setConversationId(conversation.id);
+        setMessages(restoredMessages);
+        setDiscussionResponse(restoredDiscussionResponse);
+        setDiscussionInput("");
+        setShowPlanAction(hasSavedPlan);
+
+        window.localStorage.setItem(
+          LAST_EXPLORATION_KEY,
+          JSON.stringify(restoredResearch)
+        );
+
+        window.dispatchEvent(
+          new CustomEvent("scholargraph:conversation-active", {
+            detail: { conversationId: conversation.id },
+          })
+        );
+      } catch (err) {
+        if (disposed || requestId !== researchRequestId.current) return;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to open this saved conversation."
+        );
+      } finally {
+        if (!disposed && requestId === researchRequestId.current) {
+          setLoading(false);
+        }
+      }
+    }
+
     function handleNewResearch() {
       researchRequestId.current += 1;
       planRequestId.current += 1;
@@ -221,6 +374,7 @@ export default function ResearchPage() {
 
       setQuestion("");
       setResearch(null);
+      setConversationId(null);
       setMessages([]);
       setDiscussionInput("");
       setDiscussionResponse(null);
@@ -229,6 +383,28 @@ export default function ResearchPage() {
       setPlanLoading(false);
       setError("");
       setShowPlanAction(false);
+
+      window.dispatchEvent(
+        new CustomEvent("scholargraph:conversation-active", {
+          detail: { conversationId: null },
+        })
+      );
+    }
+
+    function handlePopState() {
+      const id = new URLSearchParams(
+        window.location.search
+      ).get("conversationId");
+
+      if (id) {
+        void handleOpenConversation(
+          new CustomEvent("scholargraph:open-conversation", {
+            detail: { conversationId: id },
+          })
+        );
+      } else {
+        handleNewResearch();
+      }
     }
 
     window.addEventListener(
@@ -236,17 +412,49 @@ export default function ResearchPage() {
       handleNewResearch
     );
 
+    window.addEventListener(
+      "scholargraph:open-conversation",
+      handleOpenConversation
+    );
+
+    window.addEventListener("popstate", handlePopState);
+
+    // Restore a saved conversation on direct navigation or page refresh.
+    const requestedConversationId = new URLSearchParams(
+      window.location.search
+    ).get("conversationId");
+
+    if (requestedConversationId) {
+      void handleOpenConversation(
+        new CustomEvent("scholargraph:open-conversation", {
+          detail: {
+            conversationId: requestedConversationId,
+          },
+        })
+      );
+    }
+
     return () => {
+      disposed = true;
+
       window.removeEventListener(
         "scholargraph:new-research",
         handleNewResearch
       );
+
+      window.removeEventListener(
+        "scholargraph:open-conversation",
+        handleOpenConversation
+      );
+
+      window.removeEventListener("popstate", handlePopState);
 
       researchRequestId.current += 1;
       planRequestId.current += 1;
       discussionRequestId.current += 1;
     };
   }, []);
+
 
   async function handleResearch(
     event: FormEvent<HTMLFormElement>
@@ -262,13 +470,14 @@ export default function ResearchPage() {
 
     const requestId = ++researchRequestId.current;
 
-    // Invalidate pending plan/discussion requests for the old exploration.
+    // This is a new exploration, so it must not reuse an old conversation.
     planRequestId.current += 1;
     discussionRequestId.current += 1;
 
     setLoading(true);
     setError("");
     setResearch(null);
+    setConversationId(null);
     setMessages([]);
     setDiscussionInput("");
     setDiscussionResponse(null);
@@ -277,13 +486,13 @@ export default function ResearchPage() {
     setShowPlanAction(false);
 
     try {
-      const result = await exploreResearch(trimmed);
+      // No conversation ID means the backend creates a new conversation.
+      const result = await exploreResearch(trimmed, null);
 
       if (requestId !== researchRequestId.current) {
         return;
       }
 
-      // Use the exact question submitted, not an unrelated previous result.
       if (
         typeof result.question === "string" &&
         result.question.trim() !== trimmed
@@ -297,17 +506,22 @@ export default function ResearchPage() {
         );
       }
 
-      setResearch({
+      const savedResearch: ResearchExploration = {
         ...result,
         question: trimmed,
-      });
+      };
+
+      setResearch(savedResearch);
+
+      // Store the ID returned by the backend for subsequent operations.
+      const returnedConversationId =
+        result.conversation_id ?? null;
+
+      setConversationId(returnedConversationId);
 
       window.localStorage.setItem(
         LAST_EXPLORATION_KEY,
-        JSON.stringify({
-          ...result,
-          question: trimmed,
-        })
+        JSON.stringify(savedResearch)
       );
 
       setShowPlanAction(true);
@@ -369,10 +583,19 @@ export default function ResearchPage() {
         research: currentResearch,
         messages: existingMessages,
         prompt,
+        conversation_id:
+          conversationId ??
+          currentResearch.conversation_id ??
+          null,
       });
 
       if (requestId !== discussionRequestId.current) {
         return;
+      }
+
+      // Keep the active conversation ID in sync with the backend.
+      if (response.conversation_id) {
+        setConversationId(response.conversation_id);
       }
 
       const assistantMessage: ResearchDiscussionMessage = {
@@ -403,84 +626,127 @@ export default function ResearchPage() {
     }
   }
 
-  async function handleBuildPlan() {
-    const currentResearch = research;
+ 
+async function handleBuildPlan() {
+  const currentResearch = research;
 
-    if (!currentResearch || planLoading) {
+  if (!currentResearch || planLoading) {
+    return;
+  }
+
+  const expectedQuestion = currentResearch.question.trim();
+  const requestId = ++planRequestId.current;
+
+  setPlanLoading(true);
+  setError("");
+
+  try {
+    const plan = await generateResearchPlan({
+      question: expectedQuestion,
+      experience_level: "beginner",
+      hours_per_week: 10,
+      conversation_id:
+        conversationId ??
+        currentResearch.conversation_id ??
+        null,
+    });
+
+    console.info("[Plan Debug] API returned:", {
+      question: plan.question,
+      conversationId: plan.conversation_id,
+      firstTask: plan.daily_tasks?.[0]?.title,
+      firstMilestone: plan.milestones?.[0]?.title,
+    });
+
+    // Ignore a stale response if another research flow started.
+    if (requestId !== planRequestId.current) {
       return;
     }
 
-    const expectedQuestion = currentResearch.question.trim();
-    const requestId = ++planRequestId.current;
-
-    setPlanLoading(true);
-    setError("");
-
-    try {
-      const plan = await generateResearchPlan({
-        question: expectedQuestion,
-        experience_level: "beginner",
-        hours_per_week: 10,
+    if (
+      typeof plan.question !== "string" ||
+      plan.question.trim() !== expectedQuestion
+    ) {
+      console.error("[Planner Debug] Question mismatch:", {
+        expected: expectedQuestion,
+        returned: plan.question,
       });
-        console.info("[Plan Debug] Sending question:", expectedQuestion);
-        console.info("[Plan Debug] API returned:", {
-           question: plan.question,
-           firstTask: plan.daily_tasks?.[0]?.title,
-           firstMilestone: plan.milestones?.[0]?.title,
-      });
-
-
-      // Ignore a response if the user started another research flow meanwhile.
-      if (requestId !== planRequestId.current) {
-        return;
-      }
-
-      if (
-        typeof plan.question !== "string" ||
-        plan.question.trim() !== expectedQuestion
-      ) {
-        console.error("[Planner Debug] Question mismatch:", {
-          expected: expectedQuestion,
-          returned: plan.question,
-        });
-
-        setError(
-          "The generated plan does not match your current research question. Please try building it again."
-        );
-
-        return;
-      }
-
-      // Save only after confirming that the returned plan belongs to this question.
-      window.localStorage.setItem(
-        LAST_PLAN_KEY,
-        JSON.stringify(plan)
-      );
-
-      console.info("[Planner Debug] Saved plan:", {
-        question: plan.question,
-        firstTask: plan.daily_tasks?.[0]?.title,
-        firstMilestone: plan.milestones?.[0]?.title,
-      });
-
-      // Navigate only after the new plan has been saved.
-      window.location.assign("/planner");
-    } catch (err) {
-      if (requestId !== planRequestId.current) {
-        return;
-      }
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to build the research plan."
+        "The generated plan does not match your current research question. Please try building it again."
       );
-    } finally {
-      if (requestId === planRequestId.current) {
-        setPlanLoading(false);
-      }
+      return;
+    }
+
+    const activeConversationId =
+      plan.conversation_id ??
+      conversationId ??
+      currentResearch.conversation_id ??
+      null;
+
+    if (!activeConversationId) {
+      setError(
+        "The plan was generated, but no conversation ID was returned. Please reopen your research conversation and try again."
+      );
+      return;
+    }
+
+    const savedPlan = {
+      ...plan,
+      conversation_id: activeConversationId,
+    };
+
+    setConversationId(activeConversationId);
+
+    // Keep a cache for direct navigation, but load from the database
+    // whenever a conversation ID is provided.
+    window.localStorage.setItem(
+      "scholargraph:last-plan",
+      JSON.stringify(savedPlan)
+    );
+
+    console.info("[Planner Debug] Saved plan cache:", {
+      question: savedPlan.question,
+      conversationId: savedPlan.conversation_id,
+    });
+
+    // The Planner will fetch the latest saved plan for this conversation.
+    window.location.assign(
+      `/planner?conversationId=${encodeURIComponent(activeConversationId)}`
+    );
+  } catch (err) {
+    if (requestId !== planRequestId.current) {
+      return;
+    }
+
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Unable to build the research plan."
+    );
+  } finally {
+    if (requestId === planRequestId.current) {
+      setPlanLoading(false);
     }
   }
+}
+
+function handleViewPlan() {
+  const id =
+    conversationId ?? research?.conversation_id ?? null;
+
+  if (!id) {
+    setError(
+      "No saved conversation ID is available for this plan."
+    );
+    return;
+  }
+
+  window.location.assign(
+    `/planner?conversationId=${encodeURIComponent(id)}`
+  );
+}
+
 
   function resetResearch() {
     researchRequestId.current += 1;
@@ -489,6 +755,7 @@ export default function ResearchPage() {
 
     setQuestion("");
     setResearch(null);
+    setConversationId(null);
     setMessages([]);
     setDiscussionInput("");
     setDiscussionResponse(null);
@@ -651,6 +918,18 @@ export default function ResearchPage() {
               <X size={13} />
               New research
             </button>
+
+{showPlanAction && (
+  <button
+    type="button"
+    onClick={handleViewPlan}
+    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-300/[0.08] px-3.5 py-2 text-xs text-violet-200 transition hover:bg-violet-300/[0.15]"
+  >
+    <BookOpen size={13} />
+    View Plan
+  </button>
+ )}
+
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">

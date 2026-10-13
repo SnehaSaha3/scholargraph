@@ -114,7 +114,7 @@ def _extract_json_object(content: Any) -> str:
 
 
 def analyze_research_implementation(evidence: dict) -> dict:
-    llm = get_llm()
+    llm = get_llm(max_tokens=3000)
 
     compact = {
         "repository": evidence["repository"],
