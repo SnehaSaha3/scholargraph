@@ -1,3 +1,7 @@
+
+from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -6,6 +10,7 @@ class ResearchRequest(BaseModel):
     experience_level: str = "beginner"
     hours_per_week: int = Field(default=10, ge=1, le=168)
     deadline: str | None = None
+    conversation_id: str | None = None
 
 
 class ResearchResource(BaseModel):
@@ -69,6 +74,7 @@ class ResearchExploration(BaseModel):
     recent_papers: list[ResearchPaper] = Field(default_factory=list)
     datasets: list[ResearchResource] = Field(default_factory=list)
     books: list[ResearchResource] = Field(default_factory=list)
+    conversation_id: str | None = None
 
 
 class ResearchPlan(BaseModel):
@@ -89,6 +95,7 @@ class ResearchPlan(BaseModel):
     books: list[ResearchResource]
     milestones: list[ResearchMilestone]
     daily_tasks: list[ResearchDailyTask]
+    conversation_id: str | None = None
 
 
 class DiscussionMessage(BaseModel):
@@ -101,9 +108,36 @@ class ResearchDiscussionRequest(BaseModel):
     research: ResearchExploration
     messages: list[DiscussionMessage] = Field(default_factory=list)
     prompt: str = Field(min_length=2)
+    conversation_id: str | None = None
 
 
 class ResearchDiscussionResponse(BaseModel):
     answer: str
     supporting_papers: list[ResearchPaper] = Field(default_factory=list)
     suggested_questions: list[str] = Field(default_factory=list)
+    conversation_id: str | None = None
+
+
+class ResearchMessageResponse(BaseModel):
+    id: str
+    role: str
+    kind: str
+    content: str
+    payload: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class ResearchConversationSummary(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int = 0
+
+
+class ResearchConversationDetail(ResearchConversationSummary):
+    messages: list[ResearchMessageResponse] = Field(default_factory=list)
+
+
+class RenameResearchConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)

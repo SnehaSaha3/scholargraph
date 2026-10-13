@@ -1,476 +1,422 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import {
+  BookOpen,
   MessageSquare,
   MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
 
-export type Conversation = {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-};
+import {
+  deleteResearchConversation,
+  getResearchConversation,
+  listResearchHistory,
+  renameResearchConversation,
+  type ResearchConversationSummary,
+} from "@/lib/researchApi";
 
-type ConversationHistoryProps = {
+type Props = {
   collapsed?: boolean;
   onMobileClose?: () => void;
 };
 
-const STORAGE_KEY = "scholargraph:conversations";
-
-function createConversationTitle(question: string): string {
-  const cleaned = question
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!cleaned) {
-    return "New research";
-  }
-
-  if (cleaned.length <= 42) {
-    return cleaned;
-  }
-
-  return `${cleaned.slice(0, 42).trim()}…`;
-}
-
-function getDateGroup(dateString: string): "Today" | "Yesterday" | "Older" {
-  const date = new Date(dateString);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Older";
-  }
-
-  const now = new Date();
-
-  const today = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
-
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-
-  const target = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-
-  if (target.getTime() === today.getTime()) {
-    return "Today";
-  }
-
-  if (target.getTime() === yesterday.getTime()) {
-    return "Yesterday";
-  }
-
-  return "Older";
-}
-
-function loadConversations(): Conversation[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-
-    if (!stored) {
-      return [];
-    }
-
-    const parsed = JSON.parse(stored);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter(
-      (item): item is Conversation =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof item.id === "string" &&
-        typeof item.title === "string" &&
-        typeof item.createdAt === "string" &&
-        typeof item.updatedAt === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveConversations(conversations: Conversation[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(conversations),
-    );
-  } catch {
-    // Ignore localStorage failures.
-  }
-}
-
-export function createConversation(question: string): Conversation {
-  const now = new Date().toISOString();
-
-  return {
-    id: crypto.randomUUID(),
-    title: createConversationTitle(question),
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-export function getConversations(): Conversation[] {
-  return loadConversations();
-}
-
-export function addConversation(question: string): Conversation {
-  const conversation = createConversation(question);
-  const conversations = loadConversations();
-
-  const updated = [
-    conversation,
-    ...conversations,
-  ].slice(0, 50);
-
-  saveConversations(updated);
-
-  return conversation;
-}
-
-export function removeConversation(id: string) {
-  const conversations = loadConversations();
-
-  saveConversations(
-    conversations.filter(
-      (conversation) => conversation.id !== id,
-    ),
-  );
-}
-
-export function clearConversations() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.removeItem(STORAGE_KEY);
-}
-
 export default function ConversationHistory({
   collapsed = false,
   onMobileClose,
-}: ConversationHistoryProps) {
-  const [conversations, setConversations] = useState<
-    Conversation[]
-  >([]);
+}: Props) {
+  const [items, setItems] = useState<ResearchConversationSummary[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [openingPlanId, setOpeningPlanId] = useState<string | null>(null);
 
-  const [activeConversation, setActiveConversation] =
-    useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-  const [menuConversation, setMenuConversation] =
-    useState<string | null>(null);
+    try {
+      setItems(await listResearchHistory());
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load research history."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setConversations(loadConversations());
+    void refresh();
 
-    const handleStorage = () => {
-      setConversations(loadConversations());
+    const handleUpdated = () => void refresh();
+
+    const handleActive = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        conversationId: string | null;
+      }>;
+
+      setActiveId(customEvent.detail?.conversationId ?? null);
     };
 
-    window.addEventListener(
-      "storage",
-      handleStorage,
-    );
+    window.addEventListener("scholargraph:history-updated", handleUpdated);
+    window.addEventListener("scholargraph:conversation-active", handleActive);
 
     return () => {
       window.removeEventListener(
-        "storage",
-        handleStorage,
+        "scholargraph:history-updated",
+        handleUpdated
+      );
+      window.removeEventListener(
+        "scholargraph:conversation-active",
+        handleActive
       );
     };
-  }, []);
+  }, [refresh]);
 
-  const groups = useMemo(() => {
-    const today: Conversation[] = [];
-    const yesterday: Conversation[] = [];
-    const older: Conversation[] = [];
+  
+  function newChat() {
+    setActiveId(null);
+    setMenuId(null);
+    setEditingId(null);
+    setError("");
 
-    for (const conversation of conversations) {
-      const group = getDateGroup(
-        conversation.updatedAt,
-      );
-
-      if (group === "Today") {
-        today.push(conversation);
-      } else if (group === "Yesterday") {
-        yesterday.push(conversation);
-      } else {
-        older.push(conversation);
-      }
-    }
-
-    return {
-      today,
-      yesterday,
-      older,
-    };
-  }, [conversations]);
-
-  function handleSelect(id: string) {
-    setActiveConversation(id);
-    setMenuConversation(null);
-    onMobileClose?.();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname
+    );
 
     window.dispatchEvent(
-      new CustomEvent(
-        "scholargraph:conversation-select",
-        {
-          detail: {
-            conversationId: id,
-          },
-        },
-      ),
+      new CustomEvent("scholargraph:new-research")
+    );
+
+    window.dispatchEvent(
+      new CustomEvent("scholargraph:conversation-active", {
+        detail: { conversationId: null },
+      })
+    );
+
+    onMobileClose?.();
+  }
+
+
+  
+  function openConversation(id: string) {
+    setActiveId(id);
+    setMenuId(null);
+    setEditingId(null);
+    setError("");
+
+    onMobileClose?.();
+
+    window.location.assign(
+      `/?conversationId=${encodeURIComponent(id)}`
     );
   }
 
-  function handleDelete(id: string) {
-    removeConversation(id);
 
-    setConversations(
-      (current) =>
-        current.filter(
-          (conversation) =>
-            conversation.id !== id,
-        ),
-    );
+  async function viewPlan(item: ResearchConversationSummary) {
+    setMenuId(null);
+    setError("");
+    setOpeningPlanId(item.id);
 
-    if (activeConversation === id) {
-      setActiveConversation(null);
+    try {
+      const conversation = await getResearchConversation(item.id);
 
-      window.dispatchEvent(
-        new CustomEvent(
-          "scholargraph:conversation-delete",
-          {
-            detail: {
-              conversationId: id,
-            },
-          },
-        ),
+      const hasSavedPlan = conversation.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.kind === "plan" &&
+          message.payload !== null &&
+          typeof message.payload === "object"
       );
+
+      if (!hasSavedPlan) {
+        setError(`No saved research plan was found for "${item.title}".`);
+        return;
+      }
+
+      const plannerUrl = `/planner?conversationId=${encodeURIComponent(
+        item.id
+      )}`;
+
+      window.location.assign(plannerUrl);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to open the saved research plan."
+      );
+    } finally {
+      setOpeningPlanId(null);
+    }
+  }
+
+  function startRename(item: ResearchConversationSummary) {
+    setEditingId(item.id);
+    setEditTitle(item.title);
+    setMenuId(null);
+    setError("");
+  }
+
+  async function saveRename(id: string) {
+    const title = editTitle.trim();
+
+    if (!title) {
+      setError("A conversation title cannot be empty.");
+      return;
     }
 
-    setMenuConversation(null);
+    try {
+      const updated = await renameResearchConversation(id, title);
+
+      setItems((current) =>
+        current.map((item) => (item.id === id ? updated : item))
+      );
+
+      setEditingId(null);
+      setError("");
+
+      window.dispatchEvent(
+        new CustomEvent("scholargraph:history-updated")
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to rename conversation."
+      );
+    }
   }
 
-  function renderConversation(
-    conversation: Conversation,
-  ) {
-    const isActive =
-      activeConversation === conversation.id;
+  async function removeConversation(item: ResearchConversationSummary) {
+    if (!window.confirm(`Delete "${item.title}" and its saved messages?`)) {
+      return;
+    }
 
-    return (
+    try {
+      await deleteResearchConversation(item.id);
+
+      setItems((current) =>
+        current.filter((entry) => entry.id !== item.id)
+      );
+
+      setMenuId(null);
+      setError("");
+
+      if (activeId === item.id) {
+        newChat();
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("scholargraph:history-updated")
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to delete conversation."
+      );
+    }
+  }
+
+  return (
+    <section className="mt-5 border-t border-white/[0.07] pt-4">
       <div
-        key={conversation.id}
-        className="group relative"
+        className={[
+          "mb-3 flex items-center",
+          collapsed ? "justify-center" : "justify-between px-2",
+        ].join(" ")}
       >
-        <button
-          type="button"
-          onClick={() =>
-            handleSelect(conversation.id)
-          }
-          title={
-            collapsed
-              ? conversation.title
-              : undefined
-          }
-          className={`
-            flex h-9 w-full items-center
-            rounded-lg text-left text-[13px]
-            transition-colors
-            ${
-              collapsed
-                ? "justify-center px-0"
-                : "gap-2.5 px-2.5"
-            }
-            ${
-              isActive
-                ? "bg-white/[0.075] text-white"
-                : "text-[#8b8f99] hover:bg-white/[0.045] hover:text-[#d5d7dc]"
-            }
-          `}
-        >
-          <MessageSquare
-            size={15}
-            strokeWidth={1.7}
-            className="shrink-0"
-          />
-
-          {!collapsed && (
-            <span className="min-w-0 flex-1 truncate pr-5">
-              {conversation.title}
-            </span>
-          )}
-        </button>
-
         {!collapsed && (
-          <button
-            type="button"
-            aria-label={`Conversation options for ${conversation.title}`}
-            onClick={() =>
-              setMenuConversation(
-                menuConversation ===
-                  conversation.id
-                  ? null
-                  : conversation.id,
-              )
-            }
-            className="
-              absolute right-1 top-1/2
-              flex h-7 w-7
-              -translate-y-1/2
-              items-center justify-center
-              rounded-md
-              text-[#666b75]
-              opacity-0
-              transition-all
-              hover:bg-white/[0.08]
-              hover:text-white
-              group-hover:opacity-100
-            "
-          >
-            <MoreHorizontal size={15} />
-          </button>
+          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-white/30">
+            Recent research
+          </p>
         )}
 
-        {menuConversation ===
-          conversation.id &&
-          !collapsed && (
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading}
+          title="Refresh history"
+          aria-label="Refresh history"
+          className="rounded-lg p-2 text-white/35 hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+        >
+          <RefreshCw
+            size={14}
+            className={loading ? "animate-spin" : ""}
+          />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={newChat}
+        title={collapsed ? "New Chat" : undefined}
+        className={[
+          "flex min-h-10 w-full items-center rounded-xl border border-violet-300/15 bg-violet-300/[0.07] text-violet-100 hover:bg-violet-300/[0.12]",
+          collapsed ? "justify-center px-2" : "gap-2 px-3",
+        ].join(" ")}
+      >
+        <Plus size={16} />
+        {!collapsed && (
+          <span className="text-xs font-medium">New Chat</span>
+        )}
+      </button>
+
+      {error && !collapsed && (
+        <p
+          role="alert"
+          className="mt-2 break-words px-2 text-xs text-red-300"
+        >
+          {error}
+        </p>
+      )}
+
+      {!collapsed && (
+        <div className="mt-3 space-y-1">
+          {loading && items.length === 0 && (
+            <p className="px-2 py-3 text-xs text-white/30">
+              Loading history…
+            </p>
+          )}
+
+          {!loading && items.length === 0 && (
+            <p className="px-2 py-3 text-xs leading-5 text-white/30">
+              Your research conversations will appear here.
+            </p>
+          )}
+
+          {items.map((item) => (
             <div
-              className="
-                absolute right-1 top-9 z-50
-                w-32 overflow-hidden
-                rounded-lg border
-                border-white/[0.09]
-                bg-[#15181e]
-                p-1
-                shadow-2xl
-              "
+              key={item.id}
+              className={[
+                "group relative flex items-start gap-2 rounded-xl px-2 py-2",
+                activeId === item.id
+                  ? "bg-white/[0.08] text-white"
+                  : "text-white/50 hover:bg-white/[0.04] hover:text-white/80",
+              ].join(" ")}
             >
               <button
                 type="button"
+                onClick={() => openConversation(item.id)}
+                title={item.title}
+                className="flex min-w-0 flex-1 items-start gap-2 text-left"
+              >
+                <MessageSquare
+                  size={15}
+                  className="mt-0.5 shrink-0"
+                />
+
+                <span className="min-w-0 flex-1 truncate text-xs leading-5">
+                  {item.title}
+                </span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() =>
-                  handleDelete(
-                    conversation.id,
+                  setMenuId((current) =>
+                    current === item.id ? null : item.id
                   )
                 }
-                className="
-                  flex h-8 w-full
-                  items-center gap-2
-                  rounded-md px-2
-                  text-left text-xs
-                  text-[#b6bac2]
-                  transition-colors
-                  hover:bg-red-500/10
-                  hover:text-red-300
-                "
+                aria-label={`Options for ${item.title}`}
+                aria-expanded={menuId === item.id}
+                className="shrink-0 rounded-md p-1 text-white/30 hover:bg-white/[0.08] hover:text-white"
               >
-                <Trash2 size={14} />
-                Delete
+                <MoreHorizontal size={15} />
               </button>
+
+              {menuId === item.id && (
+                <div className="absolute right-1 top-9 z-20 w-40 rounded-xl border border-white/10 bg-[#171920] p-1 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => void viewPlan(item)}
+                    disabled={openingPlanId === item.id}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-violet-200 hover:bg-white/[0.06] disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <BookOpen size={13} />
+                    {openingPlanId === item.id
+                      ? "Opening plan…"
+                      : "View Plan"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => startRename(item)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/70 hover:bg-white/[0.06]"
+                  >
+                    <Pencil size={13} />
+                    Rename
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void removeConversation(item)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-300 hover:bg-white/[0.06]"
+                  >
+                    <Trash2 size={13} />
+                    Delete
+                  </button>
+                </div>
+              )}
+
+              {editingId === item.id && (
+                <div className="absolute left-0 right-0 top-0 z-30 rounded-xl border border-white/10 bg-[#171920] p-2 shadow-xl">
+                  <input
+                    autoFocus
+                    value={editTitle}
+                    onChange={(event) =>
+                      setEditTitle(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void saveRename(item.id);
+                      }
+
+                      if (event.key === "Escape") {
+                        setEditingId(null);
+                      }
+                    }}
+                    maxLength={255}
+                    aria-label="Conversation title"
+                    className="w-full rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-xs text-white outline-none focus:border-violet-300/50"
+                  />
+
+                  <div className="mt-2 flex justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      aria-label="Cancel rename"
+                      className="rounded-md p-2 text-white/40 hover:bg-white/[0.06]"
+                    >
+                      <X size={13} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void saveRename(item.id)}
+                      className="rounded-md bg-violet-300/15 px-3 py-2 text-xs text-violet-100 hover:bg-violet-300/25"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-      </div>
-    );
-  }
-
-  if (collapsed) {
-    return (
-      <div className="px-3">
-        {conversations
-          .slice(0, 6)
-          .map(renderConversation)}
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-3">
-      {groups.today.length > 0 && (
-        <ConversationGroup
-          label="Today"
-          conversations={groups.today}
-          renderConversation={
-            renderConversation
-          }
-        />
-      )}
-
-      {groups.yesterday.length > 0 && (
-        <ConversationGroup
-          label="Yesterday"
-          conversations={groups.yesterday}
-          renderConversation={
-            renderConversation
-          }
-        />
-      )}
-
-      {groups.older.length > 0 && (
-        <ConversationGroup
-          label="Older"
-          conversations={groups.older}
-          renderConversation={
-            renderConversation
-          }
-        />
-      )}
-
-      {conversations.length === 0 && (
-        <div className="px-2 py-3">
-          <p className="text-[11px] leading-5 text-[#555a64]">
-            Your research conversations will
-            appear here.
-          </p>
+          ))}
         </div>
       )}
-    </div>
-  );
-}
-
-type ConversationGroupProps = {
-  label: string;
-  conversations: Conversation[];
-  renderConversation: (
-    conversation: Conversation,
-  ) => React.ReactNode;
-};
-
-function ConversationGroup({
-  label,
-  conversations,
-  renderConversation,
-}: ConversationGroupProps) {
-  return (
-    <section className="mb-5">
-      <div className="mb-2 px-2 text-[10px] font-medium uppercase tracking-[0.08em] text-[#555a64]">
-        {label}
-      </div>
-
-      <div className="space-y-0.5">
-        {conversations.map(
-          renderConversation,
-        )}
-      </div>
     </section>
   );
 }

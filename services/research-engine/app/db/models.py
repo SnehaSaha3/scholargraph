@@ -1,16 +1,15 @@
-import uuid
-from datetime import datetime
 
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Text
-
-
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -30,13 +29,19 @@ class User(Base):
         String(320), unique=True, index=True, nullable=False
     )
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(2048), nullable=True
+    )
+    password_hash: Mapped[str | None] = mapped_column(
+        String(512), nullable=True
+    )
     email_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -46,10 +51,16 @@ class User(Base):
     )
 
     identities: Mapped[list["AuthIdentity"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
     sessions: Mapped[list["UserSession"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    research_conversations: Mapped[list["ResearchConversation"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
 
@@ -73,9 +84,13 @@ class AuthIdentity(Base):
         index=True,
     )
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
-    provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
 
     user: Mapped["User"] = relationship(back_populates="identities")
@@ -100,16 +115,13 @@ class UserSession(Base):
         DateTime(timezone=True), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    research_conversations: Mapped[list["ResearchConversation"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-
 
     user: Mapped["User"] = relationship(back_populates="sessions")
 
@@ -130,7 +142,9 @@ class ResearchConversation(Base):
         String(255), nullable=False, default="New research"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -139,7 +153,9 @@ class ResearchConversation(Base):
         nullable=False,
     )
 
-    user: Mapped["User"] = relationship(back_populates="research_conversations")
+    user: Mapped["User"] = relationship(
+        back_populates="research_conversations"
+    )
     messages: Mapped[list["ResearchMessage"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
@@ -168,9 +184,58 @@ class ResearchMessage(Base):
         JSON, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
 
     conversation: Mapped["ResearchConversation"] = relationship(
         back_populates="messages"
+    )
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    github_url: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
+
+    repository_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    research_question: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    result: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
