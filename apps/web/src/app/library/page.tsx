@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { Suspense, FormEvent,useCallback, useEffect, useState } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -23,6 +18,19 @@ import {
 } from "@/lib/researchApi";
 
 export default function LibraryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#08090c] text-sm text-[#777b86]">
+          Loading library...
+        </div>
+      }
+    >
+      <LibraryContent />
+    </Suspense>
+  );
+}
+function LibraryContent() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("query") ?? "";
 

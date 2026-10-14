@@ -2,6 +2,7 @@
 "use client";
 
 import {
+  Suspense,
   FormEvent,
   useCallback,
   useEffect,
@@ -37,7 +38,7 @@ import {
   SavedProject,
 } from "@/lib/researchApi";
 
-export default function ProjectsPage() {
+function PapersContent() {
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null
@@ -1072,5 +1073,18 @@ function RoadmapCard({
         </div>
       </article>
     </div>
+  );
+}
+export default function PapersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#08090c] text-sm text-[#777b86]">
+          Loading papers...
+        </div>
+      }
+    >
+      <PapersContent />
+    </Suspense>
   );
 }

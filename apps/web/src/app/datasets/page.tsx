@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Suspense, FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Database,
   ExternalLink,
@@ -14,8 +14,20 @@ import {
   ResearchResource,
   searchDatasets,
 } from "@/lib/researchApi";
-
 export default function DatasetsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#08090c] text-sm text-[#777b86]">
+          Loading datasets...
+        </div>
+      }
+    >
+      <DatasetsContent />
+    </Suspense>
+  );
+}
+function DatasetsContent() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("query") ?? "";
 

@@ -16,6 +16,9 @@ export const metadata = {
   title: "ScholarGraph",
   description:
     "Research workspace for discovering, planning, and building research projects.",
+     icons: {
+    icon: "/h.png",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -28,7 +29,7 @@ type SidebarProps = {
 };
 
 const navigation = [
-  { label: "Research", href: "/", icon: Search },
+  { label: "Research", href: "/workspace", icon: Search},
   { label: "Library", href: "/library", icon: Library },
   { label: "Papers", href: "/papers", icon: FileText },
   { label: "Datasets", href: "/datasets", icon: Database },
@@ -63,10 +64,16 @@ export default function Sidebar({
           onClick={onMobileClose}
           className="flex items-center gap-3"
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/[0.08]">
-            <Sparkles size={18} className="text-violet-200" />
-          </div>
-
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl">
+  <Image
+    src="/h.png"
+    alt="ScholarGraph logo"
+    fill
+    priority
+    sizes="36px"
+    className="object-contain"
+  />
+</div>
           {!collapsed && (
             <div>
               <p className="text-[15px] font-semibold tracking-tight text-white">
@@ -105,10 +112,7 @@ export default function Sidebar({
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
-
+  pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.href}
@@ -142,24 +146,9 @@ export default function Sidebar({
           })}
         </div>
 
-        {!collapsed && (
-          <div className="mt-7">
-            <p className="mb-3 px-3 text-[10px] font-medium uppercase tracking-[0.16em] text-white/25">
-              Discover
-            </p>
-            <Link
-              href="/pulse"
-              onClick={onMobileClose}
-              className="group flex min-h-11 items-center gap-3 rounded-xl px-3 text-white/40 transition hover:bg-white/[0.04] hover:text-white/80"
-            >
-              <Activity
-                size={18}
-                className="text-white/30 group-hover:text-white/60"
-              />
-              <span className="text-[13px] font-medium">Research Pulse</span>
-            </Link>
-          </div>
-        )}
+        
+         
+      
 
         <ConversationHistory
           collapsed={collapsed}

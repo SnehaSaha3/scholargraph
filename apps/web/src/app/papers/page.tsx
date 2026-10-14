@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Suspense,
   FormEvent,
   useCallback,
   useEffect,
@@ -19,7 +20,7 @@ import {
   searchPapers,
 } from "@/lib/researchApi";
 
-export default function PapersPage() {
+function PapersContent() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("query") ?? "";
 
@@ -324,3 +325,16 @@ function LoadingState() {
   );
 }
 
+export default function PapersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#08090c] text-sm text-[#777b86]">
+          Loading papers...
+        </div>
+      }
+    >
+      <PapersContent />
+    </Suspense>
+  );
+}

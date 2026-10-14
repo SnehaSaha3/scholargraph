@@ -8,6 +8,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -46,7 +47,7 @@ function getProgressStorageKey(conversationId: string): string {
   return `${PROGRESS_STORAGE_KEY}:${encodeURIComponent(conversationId)}`;
 }
 
-export default function PlannerPage() {
+function PlannerContent() {
   const searchParams = useSearchParams();
   const requestedConversationId =
     searchParams.get("conversationId")?.trim() || null;
@@ -550,5 +551,19 @@ function EmptyPlanner() {
         track here.
       </p>
     </div>
+  );
+}
+
+export default function PlannerPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#08090c] text-sm text-[#777b86]">
+          Loading planner...
+        </div>
+      }
+    >
+      <PlannerContent />
+    </Suspense>
   );
 }

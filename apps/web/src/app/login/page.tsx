@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, BookOpen, LoaderCircle } from "lucide-react";
 
@@ -25,7 +25,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace("/");
+      router.replace("/workspace");
     }
   }, [authLoading, user, router]);
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
         !requestedPath.startsWith("//") &&
         !requestedPath.startsWith("/login")
           ? requestedPath
-          : "/";
+          : "/workspace";
 
       router.replace(destination);
       router.refresh();
@@ -95,7 +95,15 @@ export default function LoginPage() {
     setMode(nextMode);
     setError("");
   }
+const searchParams = useSearchParams();
 
+useEffect(() => {
+  const requestedMode = searchParams.get("mode");
+
+  if (requestedMode === "register") {
+    setMode("register");
+  }
+}, [searchParams]);
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#08090c] px-4 py-12 text-white">
       <div className="w-full max-w-md">
