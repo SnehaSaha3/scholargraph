@@ -26,6 +26,12 @@ type GoogleIdentity = {
   ) => void;
 };
 
+type GsiStore = {
+  initializedFor: string | null;
+  handler: ((credential: string) => void) | null;
+  loader: Promise<void> | null;
+};
+
 declare global {
   interface Window {
     google?: {
@@ -33,20 +39,26 @@ declare global {
         id: GoogleIdentity;
       };
     };
+    __gsiStore?: GsiStore;
   }
 }
 
 const GSI_SRC = "https://accounts.google.com/gsi/client";
 
-let loaderPromise: Promise<void> | null = null;
-let initializedFor: string | null = null;
-let activeHandler: ((credential: string) => void) | null = null;
+function getStore(): GsiStore {
+  if (!window.__gsiStore) {
+    window.__gsiStore = { initializedFor: null, handler: null, loader: null };
+  }
+  return window.__gsiStore;
+}
 
 function loadGoogleScript(): Promise<void> {
-  if (window.google?.accounts?.id) return Promise.resolve();
-  if (loaderPromise) return loaderPromise;
+  const store = getStore();
 
-  loaderPromise = new Promise<void>((resolve, reject) => {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (store.loader) return store.loader;
+
+  store.loader = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(
       `script[src="${GSI_SRC}"]`
     );
@@ -56,7 +68,7 @@ function loadGoogleScript(): Promise<void> {
     script.addEventListener(
       "error",
       () => {
-        loaderPromise = null;
+        store.loader = null;
         reject(new Error("Google sign-in could not load. Check your connection."));
       },
       { once: true }
@@ -70,7 +82,7 @@ function loadGoogleScript(): Promise<void> {
     }
   });
 
-  return loaderPromise;
+  return store.loader;
 }
 
 export default function GoogleSignInButton() {
@@ -126,10 +138,12 @@ export default function GoogleSignInButton() {
     }
 
     let cancelled = false;
+    const store = getStore();
 
-    activeHandler = (credential) => {
+    const myHandler = (credential: string) => {
       void handlerRef.current(credential);
     };
+    store.handler = myHandler;
 
     loadGoogleScript()
       .then(() => {
@@ -138,12 +152,12 @@ export default function GoogleSignInButton() {
 
         if (cancelled || !element || !google?.accounts?.id) return;
 
-        if (initializedFor !== clientId) {
+        if (store.initializedFor !== clientId) {
           google.accounts.id.initialize({
             client_id: clientId,
-            callback: ({ credential }) => activeHandler?.(credential),
+            callback: ({ credential }) => getStore().handler?.(credential),
           });
-          initializedFor = clientId;
+          store.initializedFor = clientId;
         }
 
         element.replaceChildren();
@@ -165,7 +179,7 @@ export default function GoogleSignInButton() {
 
     return () => {
       cancelled = true;
-      activeHandler = null;
+      if (store.handler === myHandler) store.handler = null;
       buttonRef.current?.replaceChildren();
     };
   }, []);

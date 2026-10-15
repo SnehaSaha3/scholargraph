@@ -22,20 +22,25 @@ Research question:
 
 Identify:
 1. The primary academic/research domain.
-2. 2 to 4 focused research subtopics.
+2. 2 to 4 research subtopics.
+
+Subtopic rules:
+- Each subtopic must work as a standalone academic search query: 2 to 5 words, no filler.
+- If the question is narrow, the subtopics are its main technical components.
+- If the question is broad (a whole field, a landscape, "emerging X", "what are the areas of Y"), the subtopics must be distinct major subareas that together span the field, not details of a single subarea.
+- Correct obvious spelling mistakes and expand abbreviations such as "ml" in the domain and subtopics.
 
 Return ONLY valid JSON:
 
 {{
   "domain": "primary research domain",
   "subtopics": [
-    "focused subtopic",
-    "focused subtopic"
+    "subtopic",
+    "subtopic"
   ]
 }}
 
 Rules:
-- Keep subtopics concise.
 - Do not answer the research question.
 - Do not explain your reasoning.
 - Do not invent sources.

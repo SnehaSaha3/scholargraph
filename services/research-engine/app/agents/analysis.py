@@ -16,42 +16,33 @@ class AnalysisResult(BaseModel):
     research_gaps: list[str]
 
 
-def compact_papers(papers: list[dict]) -> list[dict]:
+def paper_evidence(papers: list[dict]) -> list[dict]:
     return [
         {
             "title": paper.get("title", ""),
             "year": paper.get("year"),
+            "summary": (paper.get("description") or "")[:300],
         }
-        for paper in papers[:5]
+        for paper in papers
     ]
 
 
-def compact_resources(resources: list[dict]) -> list[dict]:
-    return [
-        {
-            "title": resource.get("title", ""),
-            "subjects": resource.get("subjects", [])[:4],
-        }
-        for resource in resources[:5]
-    ]
+def title_list(resources: list[dict], limit: int = 5) -> list[str]:
+    return [resource.get("title", "") for resource in resources[:limit]]
 
 
 def analysis_agent(state: ResearchState) -> dict:
     llm = get_llm()
 
-    papers = (
-        state.get("foundational_papers", [])
-        + state.get("recent_papers", [])
-    )
-
-    compact_evidence = {
-        "papers": compact_papers(papers),
-        "datasets": compact_resources(
-            state.get("datasets", [])
+    evidence = {
+        "recent_papers": paper_evidence(
+            state.get("recent_papers", [])[:5]
         ),
-        "books": compact_resources(
-            state.get("books", [])
+        "foundational_papers": paper_evidence(
+            state.get("foundational_papers", [])[:3]
         ),
+        "datasets": title_list(state.get("datasets", [])),
+        "books": title_list(state.get("books", [])),
     }
 
     prompt = f"""
@@ -66,15 +57,28 @@ Domain:
 Subtopics:
 {", ".join(state.get("subtopics", [])[:4])}
 
-Retrieved evidence:
-{json.dumps(compact_evidence, ensure_ascii=False)}
+Retrieved evidence (search results, not a complete literature review):
+{json.dumps(evidence, ensure_ascii=False)}
 
-Create a concise research brief.
+Write a research brief that helps someone start working on this question.
+
+How to use your sources of knowledge:
+- Use your general knowledge of the field to explain the topic and its structure.
+- Use the retrieved evidence to ground specific claims. Describe a paper's findings only when its summary states them.
+- If the question covers a whole field or asks for a landscape (for example "emerging research fields"), research_scope and research_directions must cover the field's main subareas, not only the subareas that appear in the retrieved papers. Say in "understanding" when the retrieved papers cover only part of the field.
+- If the evidence is thin or off-topic for the question, say so in "understanding" instead of building the brief around it.
+
+Rules:
+- key_concepts are the ideas a newcomer needs for this question, not terms copied from paper titles.
+- established_approaches are methods used in the field, not paper titles rephrased.
+- Treat research_gaps as potential gaps unless the evidence establishes them.
+- Do not invent papers, datasets, books, statistics or citations.
+- Every list item is a short plain-text string. No Markdown.
 
 Return ONLY valid JSON:
 
 {{
-  "understanding": "2 concise sentences",
+  "understanding": "2 to 3 concise sentences",
   "research_scope": ["item", "item", "item"],
   "key_concepts": ["item", "item", "item", "item"],
   "established_approaches": ["item", "item", "item"],
@@ -82,15 +86,6 @@ Return ONLY valid JSON:
   "research_directions": ["item", "item", "item"],
   "research_gaps": ["item", "item", "item"]
 }}
-
-Important:
-- Use the retrieved evidence only as evidence.
-- Do not invent papers, datasets, books, findings, statistics or citations.
-- Titles alone do not prove experimental findings.
-- If evidence is insufficient, say so.
-- Treat research gaps as potential gaps unless directly established.
-- Keep every list concise.
-- Do not answer with Markdown.
 """
 
     response = llm.invoke(prompt)

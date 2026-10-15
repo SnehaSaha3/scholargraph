@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import AppShell from "@/components/layout/AppShell";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 import {
   discussResearch,
@@ -44,8 +45,88 @@ type ResearchSectionProps = {
   items: string[];
 };
 
+type Quote = {
+  text: string;
+  author: string;
+};
+
+type Pick = {
+  greetingIndex: number;
+  quoteIndex: number;
+  hour: number;
+};
+
 const LAST_EXPLORATION_KEY = "scholargraph:last-exploration";
-const LAST_PLAN_KEY = "scholargraph:last-plan";
+
+const QUOTES: Quote[] = [
+  {
+    text: "If I have seen further, it is by standing on the shoulders of giants.",
+    author: "Isaac Newton",
+  },
+  {
+    text: "The important thing is not to stop questioning.",
+    author: "Albert Einstein",
+  },
+  {
+    text: "I have no special talents. I am only passionately curious.",
+    author: "Albert Einstein",
+  },
+  {
+    text: "Research is to see what everybody else has seen, and to think what nobody else has thought.",
+    author: "Albert Szent-Györgyi",
+  },
+  {
+    text: "Nothing in life is to be feared, it is only to be understood.",
+    author: "Marie Curie",
+  },
+  {
+    text: "Every great advance in science has issued from a new audacity of imagination.",
+    author: "John Dewey",
+  },
+];
+
+function getFirstName(user: unknown): string {
+  if (!user || typeof user !== "object") return "";
+
+  const candidate = user as {
+    name?: string | null;
+    full_name?: string | null;
+    username?: string | null;
+    email?: string | null;
+  };
+
+  const raw =
+    candidate.name ||
+    candidate.full_name ||
+    candidate.username ||
+    candidate.email?.split("@")[0] ||
+    "";
+
+  const first = raw.trim().split(/\s+/)[0] ?? "";
+
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
+function getTimeGreeting(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function buildGreeting(pick: Pick | null, name: string): string {
+  const suffix = name ? `, ${name}` : "";
+
+  if (!pick) return `Hello${suffix}`;
+
+  const options = [
+    `Hello${suffix}`,
+    `What's up${suffix}`,
+    `${getTimeGreeting(pick.hour)}${suffix}`,
+    `Welcome back${suffix}`,
+  ];
+
+  return options[pick.greetingIndex % options.length];
+}
 
 function ResearchSection({
   title,
@@ -181,6 +262,8 @@ function ResourceSummary({
 }
 
 export default function ResearchPage() {
+  const { user } = useAuth();
+
   const [question, setQuestion] = useState("");
 
   const [research, setResearch] =
@@ -211,13 +294,24 @@ export default function ResearchPage() {
   const [showPlanAction, setShowPlanAction] =
     useState(false);
 
-  // Prevent an earlier request from replacing the result of a newer request.
+  const [pick, setPick] = useState<Pick | null>(null);
+
   const researchRequestId = useRef(0);
   const planRequestId = useRef(0);
   const discussionRequestId = useRef(0);
 
- 
-  
+  const firstName = getFirstName(user);
+  const greeting = buildGreeting(pick, firstName);
+  const quote = pick ? QUOTES[pick.quoteIndex % QUOTES.length] : null;
+
+  useEffect(() => {
+    setPick({
+      greetingIndex: Math.floor(Math.random() * 4),
+      quoteIndex: Math.floor(Math.random() * QUOTES.length),
+      hour: new Date().getHours(),
+    });
+  }, []);
+
   useEffect(() => {
     let disposed = false;
 
@@ -419,7 +513,6 @@ export default function ResearchPage() {
 
     window.addEventListener("popstate", handlePopState);
 
-    // Restore a saved conversation on direct navigation or page refresh.
     const requestedConversationId = new URLSearchParams(
       window.location.search
     ).get("conversationId");
@@ -455,7 +548,6 @@ export default function ResearchPage() {
     };
   }, []);
 
-
   async function handleResearch(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -470,7 +562,6 @@ export default function ResearchPage() {
 
     const requestId = ++researchRequestId.current;
 
-    // This is a new exploration, so it must not reuse an old conversation.
     planRequestId.current += 1;
     discussionRequestId.current += 1;
 
@@ -486,7 +577,6 @@ export default function ResearchPage() {
     setShowPlanAction(false);
 
     try {
-      // No conversation ID means the backend creates a new conversation.
       const result = await exploreResearch(trimmed, null);
 
       if (requestId !== researchRequestId.current) {
@@ -513,7 +603,6 @@ export default function ResearchPage() {
 
       setResearch(savedResearch);
 
-      // Store the ID returned by the backend for subsequent operations.
       const returnedConversationId =
         result.conversation_id ?? null;
 
@@ -593,7 +682,6 @@ export default function ResearchPage() {
         return;
       }
 
-      // Keep the active conversation ID in sync with the backend.
       if (response.conversation_id) {
         setConversationId(response.conversation_id);
       }
@@ -626,127 +714,121 @@ export default function ResearchPage() {
     }
   }
 
- 
-async function handleBuildPlan() {
-  const currentResearch = research;
+  async function handleBuildPlan() {
+    const currentResearch = research;
 
-  if (!currentResearch || planLoading) {
-    return;
-  }
-
-  const expectedQuestion = currentResearch.question.trim();
-  const requestId = ++planRequestId.current;
-
-  setPlanLoading(true);
-  setError("");
-
-  try {
-    const plan = await generateResearchPlan({
-      question: expectedQuestion,
-      experience_level: "beginner",
-      hours_per_week: 10,
-      conversation_id:
-        conversationId ??
-        currentResearch.conversation_id ??
-        null,
-    });
-
-    console.info("[Plan Debug] API returned:", {
-      question: plan.question,
-      conversationId: plan.conversation_id,
-      firstTask: plan.daily_tasks?.[0]?.title,
-      firstMilestone: plan.milestones?.[0]?.title,
-    });
-
-    // Ignore a stale response if another research flow started.
-    if (requestId !== planRequestId.current) {
+    if (!currentResearch || planLoading) {
       return;
     }
 
-    if (
-      typeof plan.question !== "string" ||
-      plan.question.trim() !== expectedQuestion
-    ) {
-      console.error("[Planner Debug] Question mismatch:", {
-        expected: expectedQuestion,
-        returned: plan.question,
+    const expectedQuestion = currentResearch.question.trim();
+    const requestId = ++planRequestId.current;
+
+    setPlanLoading(true);
+    setError("");
+
+    try {
+      const plan = await generateResearchPlan({
+        question: expectedQuestion,
+        experience_level: "beginner",
+        hours_per_week: 10,
+        conversation_id:
+          conversationId ??
+          currentResearch.conversation_id ??
+          null,
       });
 
+      console.info("[Plan Debug] API returned:", {
+        question: plan.question,
+        conversationId: plan.conversation_id,
+        firstTask: plan.daily_tasks?.[0]?.title,
+        firstMilestone: plan.milestones?.[0]?.title,
+      });
+
+      if (requestId !== planRequestId.current) {
+        return;
+      }
+
+      if (
+        typeof plan.question !== "string" ||
+        plan.question.trim() !== expectedQuestion
+      ) {
+        console.error("[Planner Debug] Question mismatch:", {
+          expected: expectedQuestion,
+          returned: plan.question,
+        });
+
+        setError(
+          "The generated plan does not match your current research question. Please try building it again."
+        );
+        return;
+      }
+
+      const activeConversationId =
+        plan.conversation_id ??
+        conversationId ??
+        currentResearch.conversation_id ??
+        null;
+
+      if (!activeConversationId) {
+        setError(
+          "The plan was generated, but no conversation ID was returned. Please reopen your research conversation and try again."
+        );
+        return;
+      }
+
+      const savedPlan = {
+        ...plan,
+        conversation_id: activeConversationId,
+      };
+
+      setConversationId(activeConversationId);
+
+      window.localStorage.setItem(
+        "scholargraph:last-plan",
+        JSON.stringify(savedPlan)
+      );
+
+      console.info("[Planner Debug] Saved plan cache:", {
+        question: savedPlan.question,
+        conversationId: savedPlan.conversation_id,
+      });
+
+      window.location.assign(
+        `/planner?conversationId=${encodeURIComponent(activeConversationId)}`
+      );
+    } catch (err) {
+      if (requestId !== planRequestId.current) {
+        return;
+      }
+
       setError(
-        "The generated plan does not match your current research question. Please try building it again."
+        err instanceof Error
+          ? err.message
+          : "Unable to build the research plan."
+      );
+    } finally {
+      if (requestId === planRequestId.current) {
+        setPlanLoading(false);
+      }
+    }
+  }
+
+  function handleViewPlan() {
+    const id =
+      conversationId ?? research?.conversation_id ?? null;
+
+    if (!id) {
+      setError(
+        "No saved conversation ID is available for this plan."
       );
       return;
     }
 
-    const activeConversationId =
-      plan.conversation_id ??
-      conversationId ??
-      currentResearch.conversation_id ??
-      null;
-
-    if (!activeConversationId) {
-      setError(
-        "The plan was generated, but no conversation ID was returned. Please reopen your research conversation and try again."
-      );
-      return;
-    }
-
-    const savedPlan = {
-      ...plan,
-      conversation_id: activeConversationId,
-    };
-
-    setConversationId(activeConversationId);
-
-    // Keep a cache for direct navigation, but load from the database
-    // whenever a conversation ID is provided.
-    window.localStorage.setItem(
-      "scholargraph:last-plan",
-      JSON.stringify(savedPlan)
-    );
-
-    console.info("[Planner Debug] Saved plan cache:", {
-      question: savedPlan.question,
-      conversationId: savedPlan.conversation_id,
-    });
-
-    // The Planner will fetch the latest saved plan for this conversation.
     window.location.assign(
-      `/planner?conversationId=${encodeURIComponent(activeConversationId)}`
+      `/planner?conversationId=${encodeURIComponent(id)}`
     );
-  } catch (err) {
-    if (requestId !== planRequestId.current) {
-      return;
-    }
-
-    setError(
-      err instanceof Error
-        ? err.message
-        : "Unable to build the research plan."
-    );
-  } finally {
-    if (requestId === planRequestId.current) {
-      setPlanLoading(false);
-    }
   }
-}
-
-function handleViewPlan() {
-  const id =
-    conversationId ?? research?.conversation_id ?? null;
-
-  if (!id) {
-    setError(
-      "No saved conversation ID is available for this plan."
-    );
-    return;
-  }
-
-  window.location.assign(
-    `/planner?conversationId=${encodeURIComponent(id)}`
-  );
-}
-
 
   function resetResearch() {
     researchRequestId.current += 1;
@@ -782,24 +864,32 @@ function handleViewPlan() {
             </div>
 
             <div className="text-center">
-              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[#666a75]">
-                Research workspace
-              </p>
-
-              <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl lg:text-[54px]">
-                What are you researching?
+              <h1 className="text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl lg:text-[54px]">
+                {greeting}
               </h1>
 
-              <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-[#7d818c] sm:text-base">
-                Start with a question. Explore the evidence,
-                understand what is already known, challenge
-                the direction, and decide what is worth building.
+              <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-[#a6a9b3] sm:text-lg">
+                What are you researching today?
               </p>
+
+              <div className="mx-auto mt-6 min-h-[64px] max-w-xl">
+                {quote && (
+                  <figure>
+                    <blockquote className="text-sm italic leading-6 text-[#70747f]">
+                      &ldquo;{quote.text}&rdquo;
+                    </blockquote>
+
+                    <figcaption className="mt-1.5 text-xs text-[#555963]">
+                      {quote.author}
+                    </figcaption>
+                  </figure>
+                )}
+              </div>
             </div>
 
             <form
               onSubmit={handleResearch}
-              className="mt-10"
+              className="mt-8"
             >
               <div className="rounded-2xl border border-white/[0.09] bg-[#0d0f14] p-2 shadow-2xl shadow-black/20">
                 <textarea
@@ -815,7 +905,7 @@ function handleViewPlan() {
 
                 <div className="flex flex-col gap-3 border-t border-white/[0.06] px-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="px-2 text-xs text-[#555963]">
-                    ScholarGraph starts with exploration, not a plan.
+                    The plan comes after you&apos;ve explored the topic.
                   </p>
 
                   <button
@@ -833,7 +923,7 @@ function handleViewPlan() {
                       </>
                     ) : (
                       <>
-                        Explore research
+                        Explore
                         <ArrowRight size={15} />
                       </>
                     )}
@@ -857,17 +947,17 @@ function handleViewPlan() {
                 {
                   icon: Search,
                   title: "Explore",
-                  text: "Understand the problem and existing research.",
+                  text: "See an overview of the topic and the work already done on it.",
                 },
                 {
                   icon: MessageCircle,
                   title: "Discuss",
-                  text: "Question assumptions and investigate gaps.",
+                  text: "Ask follow-up questions about anything that's unclear.",
                 },
                 {
                   icon: Target,
-                  title: "Decide",
-                  text: "Turn the direction into a research plan.",
+                  title: "Plan",
+                  text: "Get milestones and tasks once you know your direction.",
                 },
               ].map((item) => (
                 <div
@@ -902,7 +992,7 @@ function handleViewPlan() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.2em] text-[#626670]">
-                Research exploration
+                Your question
               </p>
 
               <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
@@ -919,24 +1009,19 @@ function handleViewPlan() {
               New research
             </button>
 
-{showPlanAction && (
-  <button
-    type="button"
-    onClick={handleViewPlan}
-    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-300/[0.08] px-3.5 py-2 text-xs text-violet-200 transition hover:bg-violet-300/[0.15]"
-  >
-    <BookOpen size={13} />
-    View Plan
-  </button>
- )}
-
+            {showPlanAction && (
+              <button
+                type="button"
+                onClick={handleViewPlan}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-300/[0.08] px-3.5 py-2 text-xs text-violet-200 transition hover:bg-violet-300/[0.15]"
+              >
+                <BookOpen size={13} />
+                View plan
+              </button>
+            )}
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <span className="rounded-full bg-white/[0.05] px-3 py-1.5 text-[11px] text-[#888c97]">
-              Exploration
-            </span>
-
             <span className="rounded-full bg-white/[0.05] px-3 py-1.5 text-[11px] text-[#888c97]">
               {research.recent_papers.length} recent papers
             </span>
@@ -962,11 +1047,11 @@ function handleViewPlan() {
 
             <div>
               <p className="text-[10px] uppercase tracking-[0.16em] text-[#626670]">
-                Starting point
+                Overview
               </p>
 
               <h2 className="mt-1 text-sm font-medium text-white">
-                What the research is about
+                About this topic
               </h2>
             </div>
           </div>
@@ -978,7 +1063,7 @@ function handleViewPlan() {
 
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           <ResearchSection
-            title="Research scope"
+            title="Scope"
             icon={Target}
             items={research.research_scope}
           />
@@ -1002,13 +1087,13 @@ function handleViewPlan() {
           />
 
           <ResearchSection
-            title="Possible research directions"
+            title="Research directions"
             icon={ArrowRight}
             items={research.research_directions}
           />
 
           <ResearchSection
-            title="Potential gaps"
+            title="Gaps"
             icon={Search}
             items={research.research_gaps}
           />
@@ -1018,15 +1103,15 @@ function handleViewPlan() {
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-[#626670]">
-                Evidence
+                Sources
               </p>
 
               <h2 className="mt-2 text-xl font-semibold text-white">
-                Research material
+                Papers, datasets and books
               </h2>
 
               <p className="mt-1 text-sm text-[#70747f]">
-                Sources to investigate before deciding where to go next.
+                Open any of these to see the full list.
               </p>
             </div>
           </div>
@@ -1069,11 +1154,11 @@ function handleViewPlan() {
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-[#626670]">
-                  Literature
+                  Papers
                 </p>
 
                 <h2 className="mt-2 text-lg font-medium text-white">
-                  Recent research
+                  Recent papers
                 </h2>
               </div>
 
@@ -1104,16 +1189,16 @@ function handleViewPlan() {
           <div className="flex items-end justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-[#626670]">
-                Research discussion
+                Discussion
               </p>
 
               <h2 className="mt-2 text-xl font-semibold text-white">
-                Investigate the question further
+                Ask follow-up questions
               </h2>
 
               <p className="mt-1 max-w-2xl text-sm leading-6 text-[#70747f]">
-                Ask why an approach fails, what evidence supports a claim,
-                what is missing, or how you could test an idea.
+                Ask about methods, missing evidence, or how you could
+                test an idea.
               </p>
             </div>
           </div>
@@ -1177,7 +1262,7 @@ function handleViewPlan() {
                     </>
                   ) : (
                     <>
-                      Discuss
+                      Send
                       <ArrowRight size={13} />
                     </>
                   )}
@@ -1188,7 +1273,7 @@ function handleViewPlan() {
             {discussionResponse?.suggested_questions?.length ? (
               <div className="mt-4">
                 <p className="mb-2 text-[10px] uppercase tracking-[0.15em] text-[#5d616c]">
-                  Continue investigating
+                  Suggested questions
                 </p>
 
                 <div className="flex flex-wrap gap-2">
@@ -1217,17 +1302,16 @@ function handleViewPlan() {
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-[#8278a7]">
-                  Ready for the next step?
+                  Next
                 </p>
 
                 <h2 className="mt-2 text-lg font-medium text-white">
-                  Turn this exploration into a research plan
+                  Build a research plan
                 </h2>
 
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7e818c]">
-                  Once you understand the problem and have questioned the
-                  direction, ScholarGraph can turn it into milestones,
-                  learning topics, resources, and daily tasks.
+                  Get milestones, topics to study, resources, and daily
+                  tasks based on this question.
                 </p>
               </div>
 
@@ -1247,7 +1331,7 @@ function handleViewPlan() {
                   </>
                 ) : (
                   <>
-                    Build research plan
+                    Build plan
                     <ArrowRight size={15} />
                   </>
                 )}
