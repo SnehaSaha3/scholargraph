@@ -1,7 +1,8 @@
+
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scholargraph",
-  "main": "worker.py",
+  "name": "scholargraph-api",
+   "main": "src/worker.py",
   "compatibility_date": "2026-10-16",
   "compatibility_flags": ["python_workers"]
 }

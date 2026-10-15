@@ -28,9 +28,8 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["app*"]
-exclude = ["migrations*"]
 namespaces = false
 
 [tool.setuptools.package-data]
