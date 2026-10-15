@@ -1,0 +1,24 @@
+[project]
+name = "scholargraph-api"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "groq",
+    "langchain",
+    "langchain-core",
+    "langchain-groq",
+    "langgraph",
+    "pydantic",
+    "python-dotenv",
+    "sqlalchemy",
+    "psycopg",
+    "cryptography",
+    "tiktoken"
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk"
+]
