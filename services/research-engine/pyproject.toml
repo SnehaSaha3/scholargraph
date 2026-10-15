@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "scholargraph-api"
 version = "0.1.0"
@@ -23,10 +27,8 @@ dev = [
     "workers-runtime-sdk"
 ]
 
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+[tool.setuptools]
+packages = ["app", "app.agents", "app.api", "app.core", "app.db", "app.graph", "app.schemas", "app.services"]
 
-[tool.setuptools.packages.find]
-include = ["app", "app.*"]
-exclude = ["migrations", "migrations.*"]
+[tool.setuptools.package-data]
+app = ["**/*"]
