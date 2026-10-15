@@ -23,12 +23,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "workers-py",
+    "workers-py>=1.9",
     "workers-runtime-sdk"
 ]
 
-[tool.setuptools]
-packages = ["app", "app.agents", "app.api", "app.core", "app.db", "app.graph", "app.schemas", "app.services"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["migrations*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 app = ["**/*"]
