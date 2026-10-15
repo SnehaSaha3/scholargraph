@@ -120,7 +120,7 @@ export default function ConversationHistory({
     onMobileClose?.();
 
     window.location.assign(
-      `/?conversationId=${encodeURIComponent(id)}`
+      `/workspace?conversationId=${encodeURIComponent(id)}`
     );
   }
 
