@@ -1,8 +1,11 @@
-
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scholargraph-api",
-   "main": "src/worker.py",
+  "name": "scholargraph",
+  "main": "src/worker.py",
   "compatibility_date": "2026-10-16",
-  "compatibility_flags": ["python_workers"]
+  "compatibility_flags": ["python_workers"],
+  "vars": {
+    "GROQ_MODEL": "openai/gpt-oss-120b",
+    "GOOGLE_CLIENT_ID": "249197925975-csu417a8idad8tuttnuc53mtlhh2pl02.apps.googleusercontent.com"
+  }
 }
