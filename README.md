@@ -16,6 +16,7 @@
   <img src="https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white" alt="Next.js" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/LangGraph-1C3C3C?style=flat" alt="LangGraph" />
   <img src="https://img.shields.io/badge/Groq-GPT--OSS%20120B-orange?style=flat" alt="Groq GPT-OSS 120B" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat" alt="MIT License" />
