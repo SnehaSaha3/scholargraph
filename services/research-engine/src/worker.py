@@ -1,4 +1,9 @@
-from app.main import app
-from workers import asgi
+from workers import WorkerEntrypoint
+import asgi
 
-Default = asgi.entrypoint(app)
+from app.main import app
+
+
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        return await asgi.fetch(app, request.js_object, self.env)
