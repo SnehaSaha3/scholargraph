@@ -1,6 +1,5 @@
-from workers import Response, WorkerEntrypoint
 
+from app.main import app
+from workers import asgi
 
-class Default(WorkerEntrypoint):
-    async def fetch(self, request):
-        return Response("ok")
+Default = asgi.entrypoint(app)
