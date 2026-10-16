@@ -22,7 +22,8 @@ dependencies = [
     "sqlalchemy",
     "psycopg",
     "cryptography",
-    "tiktoken"
+    "tiktoken",
+     "uvicorn"
 ]
 
 [dependency-groups]
