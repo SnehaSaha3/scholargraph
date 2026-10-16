@@ -17,6 +17,7 @@ dependencies = [
     "pydantic",
     "email-validator",
     "google-auth",
+    "pwdlib[argon2]",
     "python-dotenv",
     "sqlalchemy",
     "psycopg",
