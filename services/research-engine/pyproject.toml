@@ -16,6 +16,7 @@ dependencies = [
     "langgraph",
     "pydantic",
     "email-validator",
+    "google-auth",
     "python-dotenv",
     "sqlalchemy",
     "psycopg",
