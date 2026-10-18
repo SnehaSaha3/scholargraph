@@ -1,12 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "scholargraph",
-  "main": "src/worker.py",
+  "main": "edge/index.ts",
   "compatibility_date": "2026-10-15",
-  "compatibility_flags": ["python_workers"],
   "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "Backend",
+      "image": "./Dockerfile",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "Backend", "name": "BACKEND" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Backend"] }],
   "vars": {
     "GROQ_MODEL": "openai/gpt-oss-120b",
-    "GOOGLE_CLIENT_ID": "249197925975-csu417a8idad8tuttnuc53mtlhh2pl02.apps.googleusercontent.com"
+    "GOOGLE_CLIENT_ID": "249197925975-csu417a8idad8tuttnuc53mtlhh2pl02.apps.googleusercontent.com",
+    "CORS_ORIGINS": "https://scholargraph-research.vercel.app"
   }
 }
