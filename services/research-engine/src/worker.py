@@ -1,10 +1,24 @@
-from fastapi import FastAPI
-from workers import asgi
+import os
 
-app = FastAPI()
+import asgi
+from workers import WorkerEntrypoint
 
-@app.get("/")
-async def root():
-    return {"status": "ok", "service": "ScholarGraph"}
+ENV_KEYS = (
+    "CORS_ORIGINS",
+    "DATABASE_URL",
+    "GOOGLE_CLIENT_ID",
+    "GROQ_API_KEY",
+    "GROQ_MODEL",
+    "JWT_SECRET",
+)
 
-Default = asgi.entrypoint(app)
+
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        for key in ENV_KEYS:
+            value = getattr(self.env, key, None)
+            if value is not None:
+                os.environ[key] = str(value)
+        from app.main import app
+
+        return await asgi.fetch(app, request.js_object, self.env)
