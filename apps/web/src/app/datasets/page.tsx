@@ -10,10 +10,12 @@ import {
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/layout/AppShell";
+import { readLastExploration } from "@/lib/lastExploration";
 import {
   ResearchResource,
   searchDatasets,
 } from "@/lib/researchApi";
+
 export default function DatasetsPage() {
   return (
     <Suspense
@@ -27,6 +29,7 @@ export default function DatasetsPage() {
     </Suspense>
   );
 }
+
 function DatasetsContent() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("query") ?? "";
@@ -36,8 +39,6 @@ function DatasetsContent() {
     value: urlQuery,
   });
 
-  // Use the URL query after navigation, while preserving editable text
-  // for the current URL query.
   const query =
     queryDraft.source === urlQuery
       ? queryDraft.value
@@ -76,11 +77,21 @@ function DatasetsContent() {
   useEffect(() => {
     const trimmedQuery = urlQuery.trim();
 
-   if (trimmedQuery) {
-  // Intentional: synchronize URL query changes with API search results.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  void loadDatasets(trimmedQuery);
-}
+    if (!trimmedQuery) {
+      return;
+    }
+
+    const saved = readLastExploration(trimmedQuery);
+    const savedDatasets = saved?.datasets ?? [];
+
+    if (savedDatasets.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDatasets(savedDatasets);
+      setError("");
+      return;
+    }
+
+    void loadDatasets(trimmedQuery);
   }, [urlQuery, loadDatasets]);
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
@@ -95,7 +106,6 @@ function DatasetsContent() {
     });
   }
 
-  // Hide stale results when the URL and search field are both empty.
   const hasActiveQuery = Boolean(urlQuery.trim() || query.trim());
 
   return (
@@ -303,4 +313,3 @@ function EmptyDatasets({ hasQuery }: { hasQuery: boolean }) {
     </div>
   );
 }
-

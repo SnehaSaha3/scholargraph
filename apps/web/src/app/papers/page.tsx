@@ -15,6 +15,7 @@ import {
 import { useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/layout/AppShell";
+import { readLastExploration } from "@/lib/lastExploration";
 import {
   ResearchPaper,
   searchPapers,
@@ -49,12 +50,7 @@ function PapersContent() {
     setError("");
 
     try {
-      console.log("ScholarGraph paper search:", trimmedQuery);
-
       const results = await searchPapers(trimmedQuery);
-
-      console.log("ScholarGraph papers received:", results);
-
       setPapers(results);
     } catch (err) {
       console.error("ScholarGraph paper error:", err);
@@ -73,11 +69,27 @@ function PapersContent() {
   useEffect(() => {
     const trimmedQuery = urlQuery.trim();
 
-    if (trimmedQuery) {
-  // Intentional: synchronize URL query changes with API search results.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  void loadPapers(trimmedQuery);
-}
+    if (!trimmedQuery) {
+      return;
+    }
+
+    const saved = readLastExploration(trimmedQuery);
+
+    const savedPapers = saved
+      ? [
+          ...(saved.foundational_papers ?? []),
+          ...(saved.recent_papers ?? []),
+        ]
+      : [];
+
+    if (savedPapers.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPapers(savedPapers);
+      setError("");
+      return;
+    }
+
+    void loadPapers(trimmedQuery);
   }, [urlQuery, loadPapers]);
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
@@ -95,6 +107,10 @@ function PapersContent() {
 
   const recentPapers = papers.filter(
     (paper) => paper.year >= 2022
+  );
+
+  const unplacedPapers = papers.filter(
+    (paper) => !(paper.year > 0)
   );
 
   return (
@@ -171,6 +187,14 @@ function PapersContent() {
           <EmptyPapers hasQuery={true} />
         ) : (
           <div className="space-y-12">
+            {recentPapers.length > 0 && (
+              <PaperSection
+                title="Recent research"
+                description="More recent literature related to the research topic."
+                papers={recentPapers}
+              />
+            )}
+
             {foundationalPapers.length > 0 && (
               <PaperSection
                 title="Foundational papers"
@@ -179,11 +203,11 @@ function PapersContent() {
               />
             )}
 
-            {recentPapers.length > 0 && (
+            {unplacedPapers.length > 0 && (
               <PaperSection
-                title="Recent research"
-                description="More recent literature related to the research topic."
-                papers={recentPapers}
+                title="Other papers"
+                description="Papers without a publication year."
+                papers={unplacedPapers}
               />
             )}
           </div>
@@ -240,7 +264,7 @@ function PaperCard({
           </h3>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/40">
-            {paper.authors.length > 0 && (
+            {paper.authors?.length > 0 && (
               <span>
                 {paper.authors.slice(0, 4).join(", ")}
                 {paper.authors.length > 4 && " et al."}
