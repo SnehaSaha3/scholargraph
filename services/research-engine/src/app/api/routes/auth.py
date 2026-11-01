@@ -1,4 +1,3 @@
-
 import os
 from typing import Annotated
 
@@ -27,27 +26,31 @@ COOKIE_NAME = "sg_session"
 COOKIE_MAX_AGE = 7 * 24 * 60 * 60
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def cookie_settings() -> dict:
     is_production = os.getenv("APP_ENV", "development").lower() == "production"
+    return {
+        "secure": is_production,
+        "samesite": "none" if is_production else "lax",
+    }
+
+
+def set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         max_age=COOKIE_MAX_AGE,
         httponly=True,
-        secure=is_production,
-        samesite="lax",
         path="/",
+        **cookie_settings(),
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    is_production = os.getenv("APP_ENV", "development").lower() == "production"
     response.delete_cookie(
         key=COOKIE_NAME,
         path="/",
         httponly=True,
-        secure=is_production,
-        samesite="lax",
+        **cookie_settings(),
     )
 
 
