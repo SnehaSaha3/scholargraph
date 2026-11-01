@@ -89,6 +89,7 @@ function getFirstName(user: unknown): string {
   if (!user || typeof user !== "object") return "";
 
   const candidate = user as {
+    display_name?: string | null;
     name?: string | null;
     full_name?: string | null;
     username?: string | null;
@@ -96,9 +97,10 @@ function getFirstName(user: unknown): string {
   };
 
   const raw =
-    candidate.name ||
-    candidate.full_name ||
-    candidate.username ||
+    candidate.display_name?.trim() ||
+    candidate.name?.trim() ||
+    candidate.full_name?.trim() ||
+    candidate.username?.trim() ||
     candidate.email?.split("@")[0] ||
     "";
 
